@@ -18,11 +18,10 @@ to the drone lies inside the sector, it is the answer. Otherwise the
 constrained minimum lies on one of the sector's two boundary rays, where it
 is that ray's first hit.
 
-isaaclab_env/drone_nav_v2_env_dqn.py carries a verbatim copy of every
-function here except obstacle_surface_distance, because that file is copied
-into an Isaac Lab checkout where this folder is not importable.
-test_obstacle_geometry.py fails when the copies drift apart.
-camera_emulation.py also imports _ray_hit_circle and _ray_hit_box.
+The Isaac env does not use these functions. Its DQN reads the same quantity
+from its depth cameras, so these exact values are the noise-free version of
+those readings. camera_emulation.py also imports _ray_hit_circle and
+_ray_hit_box.
 """
 import math
 

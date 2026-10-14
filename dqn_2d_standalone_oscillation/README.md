@@ -129,8 +129,11 @@ The obstacle layout is ported from the Isaac Lab environment's `_reset_idx`.
 `d_front`, `d_left` and `d_right` are not simulated sensor readings.
 `obstacle_geometry.py` computes each one exactly from the obstacle shapes, as the distance from the drone's center to the nearest obstacle surface inside a 73 degree horizontal sector facing forward, left or right, capped at 10 m.
 The sectors copy the field of view of the Isaac Lab cameras, so bearings between 36.5 and 53.5 degrees off the front axis are blind in both environments.
+The Isaac Lab environment is unchanged and its DQN still reads these three values from its cameras, so they mean the same thing in both environments and only the Isaac Lab values carry measurement error.
+That error includes the cameras sitting 0.25 m off the drone's center, thin obstacles slipping between side-camera rays, rendering noise and ground-filter errors.
+To see how much of a gap comes from the first two, evaluate the same checkpoint again with `--distance_mode camera` below.
 
-`test_obstacle_geometry.py` checks these distances against a brute-force reference, and checks that the copy of the same functions inside the Isaac Lab environment file, and the constants both environments feed them, have not drifted.
+`test_obstacle_geometry.py` checks these distances against a brute-force reference, and checks that the field of view and the obstacle layout constants still match the Isaac Lab environment file.
 It also covers the environment side, meaning the obstacle layout, crash detection, the outcome priority and the Stage 0 shortcuts.
 
 ```bash
@@ -173,7 +176,7 @@ A mismatch usually fails on the input size, but `--k_nearest 1` gives 5 inputs l
 | `dqn_config.py` | `DQNConfig` dataclass: all network/action/hyperparameter settings, CLI-overridable |
 | `dqn_action_space.py` | Shared `QNetwork` and discrete-to-continuous action mapping |
 | `dqn_2d_env.py` | The pure-2D kinematic environment |
-| `obstacle_geometry.py` | Exact ground-truth obstacle distances, shared with the Isaac Lab environment |
+| `obstacle_geometry.py` | Exact ground-truth obstacle distances |
 | `test_obstacle_geometry.py` | Tests for `obstacle_geometry.py` and for the obstacle handling in `dqn_2d_env.py`, run as a plain script |
 | `camera_emulation.py` | Emulated depth-camera readings for `--distance_mode camera` |
 | `test_camera_emulation.py` | Tests for `camera_emulation.py`, run as a plain script |

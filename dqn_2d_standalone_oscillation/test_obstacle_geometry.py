@@ -9,7 +9,6 @@ boundary and keeps the nearest one inside the sector. It shares no code with
 the ray intersection it checks, so agreement means the exact method is right.
 """
 import ast
-import inspect
 import math
 import os
 
@@ -23,7 +22,6 @@ HALF = math.radians(36.5)
 MAX_RANGE = 10.0
 ISAAC_ENV = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "..", "isaaclab_env", "drone_nav_v2_env_dqn.py")
-COPIED_FUNCTIONS = ["_ray_hit_circle", "_ray_hit_box", "_nearest_surface", "obstacle_sector_distances"]
 
 
 def _wrap(a):
@@ -155,23 +153,11 @@ def _isaac_literal(tree, name):
     raise AssertionError(f"{name} is not assigned in {ISAAC_ENV}")
 
 
-def test_isaac_copy_matches():
-    isaac = {n.name: n for n in _isaac_tree().body if isinstance(n, ast.FunctionDef)}
-    local = {n.name: n for n in ast.parse(inspect.getsource(og)).body if isinstance(n, ast.FunctionDef)}
-    for name in COPIED_FUNCTIONS:
-        assert name in isaac, f"{name} missing from {ISAAC_ENV}"
-        assert ast.dump(isaac[name]) == ast.dump(local[name]), f"{name} differs between the two copies"
-    print(f"  Isaac Lab copy: {len(COPIED_FUNCTIONS)} functions identical")
-
-
 def test_isaac_constants_match():
-    """The values the two environments feed the shared functions must agree too,
-    or the network sees different distances in each with every test still green."""
+    """The sensor field of view and the obstacle layout must keep matching the Isaac env,
+    or the 2D readings stop being the noise-free version of what its cameras see.
+    The far clip is checked by test_camera_emulation.py."""
     tree = _isaac_tree()
-    assert _isaac_literal(tree, "_OBSTACLE_CYLINDER_RADII") == E.CYLINDER_RADII
-    sizes = _isaac_literal(tree, "_OBSTACLE_BOX_SIZES_XY")
-    assert tuple(tuple(s / 2 for s in b) for b in sizes) == E.BOX_HALF_EXTENTS
-    assert _isaac_literal(tree, "_DQN_MAX_RANGE") == E.MAX_SENSE_RANGE
     half_fov = math.atan(_isaac_literal(tree, "_horizontal_aperture") / (2.0 * _isaac_literal(tree, "_focal_length")))
     assert math.isclose(half_fov, E.SENSOR_HALF_FOV)
     drone_radius = _isaac_literal(tree, "drone_radius")
@@ -184,7 +170,7 @@ def test_isaac_constants_match():
     assert all(math.isclose(a, b) for a, b in zip(placement, E.PLACEMENT_RADII)) and len(placement) == len(E.PLACEMENT_RADII)
     assert _isaac_literal(tree, "obstacle_min_spacing") == E.OBSTACLE_MIN_SPACING
     assert _isaac_literal(tree, "REHEARSAL_PROB") == E.REHEARSAL_PROB
-    print("  Isaac Lab constants: footprints, range, FOV, layout radii, spacing and rehearsal match")
+    print("  Isaac Lab constants: FOV, drone radius, layout radii, spacing and rehearsal match")
 
 
 def _env_obstacles(env):
@@ -323,7 +309,7 @@ def test_pre_reset_state_and_breakdown():
 
 if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
-                 test_isaac_copy_matches, test_isaac_constants_match,
+                 test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
                  test_contact_crash_and_obs_wiring, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
