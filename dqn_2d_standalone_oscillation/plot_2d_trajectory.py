@@ -6,11 +6,12 @@ matplotlib. No GUI/Isaac Sim dependency; pure numpy/matplotlib.
 import argparse
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle, Rectangle
 import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
-from dqn_2d_env import DroneNav2DEnv
+from dqn_2d_env import BOX_HALF_EXTENTS, CYLINDER_RADII, NUM_CYLINDERS, add_env_args, env_from_args
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
@@ -18,26 +19,29 @@ parser.add_argument("--max_steps", type=int, default=1000)
 parser.add_argument("--num_episodes", type=int, default=4,
                      help="how many episodes to plot (each as a separate line)")
 parser.add_argument("--out", type=str, default="trajectory.png")
+add_env_args(parser)
 add_config_args(parser)
 args = parser.parse_args()
 cfg: DQNConfig = config_from_args(args)
 
 device = "cpu"
-env = DroneNav2DEnv(num_envs=1, cfg=cfg, device=device)
-q_net = QNetwork(state_dim=cfg.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
+env = env_from_args(args, 1, cfg, device)
+q_net = QNetwork(state_dim=env.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
 q_net.load_state_dict(torch.load(args.checkpoint, map_location=device))
 q_net.eval()
-print(f"[PLOT] loaded checkpoint: {args.checkpoint}")
+print(f"[PLOT] loaded checkpoint: {args.checkpoint}  "
+      f"num_obstacles={args.num_obstacles}  distance_mode={args.distance_mode}")
 
 fig, ax = plt.subplots(figsize=(7, 7))
 colors = plt.cm.tab10.colors
 
-# [obstacles-patch]
 for ep in range(args.num_episodes):
     obs_dict, _ = env.reset()
     state = obs_dict["dqn_state"]
     target = env.target[0].clone()
-    obstacles = [o for o in env.obs_pos[0].tolist() if abs(o[0]) < 1e3]  # skip parked ones
+    # step() replaces the layout when the episode ends.
+    obstacles = env.obstacle_xy[0].clone()
+    active = env.obstacle_active[0].tolist()
 
     xs = [env.pos[0, 0].item()]
     ys = [env.pos[0, 1].item()]
@@ -49,37 +53,36 @@ for ep in range(args.num_episodes):
         actions_continuous = discrete_action_to_continuous(action_idx, device)
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         state = obs_dict["dqn_state"]
-        # step() auto-resets finished envs, so read the true final position from
-        # the pre-reset snapshot instead of env.pos.
-        final_pos = env._pre_reset[0][0]
-        xs.append(final_pos[0].item())
-        ys.append(final_pos[1].item())
-
-        if env._last_reached_flag[0].item():
-            outcome = "reached"
-        elif env._last_any_contact[0].item():
-            outcome = "crashed"
-        elif env._last_out_of_bounds[0].item():
-            outcome = "out_of_bounds"
+        # On the final step env.pos already holds the next episode's spawn point.
+        end_pos = env.pre_reset_state["pos"][0]
+        xs.append(end_pos[0].item())
+        ys.append(end_pos[1].item())
         if (terminated | truncated)[0].item():
+            outcome = env.last_outcomes()[0]
             break
 
     color = colors[ep % len(colors)]
+    for i, is_active in enumerate(active):
+        if not is_active:
+            continue
+        x, y = obstacles[i].tolist()
+        if i < NUM_CYLINDERS:
+            patch = Circle((x, y), CYLINDER_RADII[i])
+        else:
+            hx, hy = BOX_HALF_EXTENTS[i - NUM_CYLINDERS]
+            patch = Rectangle((x - hx, y - hy), 2 * hx, 2 * hy)
+        patch.set(facecolor=color, edgecolor=color, alpha=0.3)
+        ax.add_patch(patch)
     ax.plot(xs, ys, color=color, alpha=0.7, linewidth=1.5,
-            label=f"ep{ep} ({outcome}, {len(xs)} steps)")
+            label=f"ep{ep} ({outcome}, {len(xs) - 1} steps)")
     ax.scatter([xs[0]], [ys[0]], color=color, marker="o", s=60, zorder=5)  # start
     ax.scatter([target[0].item()], [target[1].item()], color=color, marker="*", s=200, zorder=5)  # target
-    for (ox, oy) in obstacles:  # obstacles: filled circle in the episode's colour
-        ax.add_patch(plt.Circle((ox, oy), cfg.obstacle_radius, color=color, alpha=0.25, zorder=2))
-    if outcome == "crashed":
-        ax.scatter([xs[-1]], [ys[-1]], color=color, marker="x", s=120, zorder=6)
-    print(f"[PLOT] episode {ep}: outcome={outcome}, steps={len(xs)}, "
-          f"start=({xs[0]:.2f},{ys[0]:.2f}), target=({target[0]:.2f},{target[1]:.2f}), "
-          f"obstacles={len(obstacles)}")
+    print(f"[PLOT] episode {ep}: outcome={outcome}, steps={len(xs) - 1}, "
+          f"start=({xs[0]:.2f},{ys[0]:.2f}), target=({target[0]:.2f},{target[1]:.2f})")
 
 ax.set_xlabel("x (m)")
 ax.set_ylabel("y (m)")
-ax.set_title("2D DQN trajectories (o=start, *=target, disc=obstacle, x=crash)")
+ax.set_title("2D DQN trajectories (circle=start, star=target, shaded=obstacles)")
 ax.legend(fontsize=8, loc="best")
 ax.set_aspect("equal")
 ax.grid(True, alpha=0.3)

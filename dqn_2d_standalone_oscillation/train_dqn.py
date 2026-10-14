@@ -18,7 +18,7 @@ import argparse
 import os
 import random
 import time
-from collections import deque
+from collections import Counter, deque
 
 import torch
 import torch.nn.functional as F
@@ -26,7 +26,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
-from dqn_2d_env import DroneNav2DEnv
+from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -40,6 +40,7 @@ parser.add_argument("--run_name", type=str, default=None, help="name for this ru
 parser.add_argument("--output_dir", type=str, default=SCRIPT_DIR,
                      help="base directory for checkpoints/ and tensorboard/ subdirectories; "
                           "defaults to this script's own directory")
+add_env_args(parser)
 add_config_args(parser)
 args = parser.parse_args()
 cfg: DQNConfig = config_from_args(args)
@@ -76,10 +77,10 @@ class ReplayBuffer:
 # ══════════════════════════════════════════════════════════
 # Set up environment, network, optimizer
 # ══════════════════════════════════════════════════════════
-env = DroneNav2DEnv(num_envs=args.num_envs, cfg=cfg, device=device)
+env = env_from_args(args, args.num_envs, cfg, device)
 
-q_net = QNetwork(state_dim=cfg.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
-q_target = QNetwork(state_dim=cfg.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
+q_net = QNetwork(state_dim=env.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
+q_target = QNetwork(state_dim=env.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
 if args.resume_from:
     q_net.load_state_dict(torch.load(args.resume_from, map_location=device))
     print(f"[DQN] resumed weights from {args.resume_from}")
@@ -106,8 +107,10 @@ print(f"  device          : {device}")
 print(f"  num_envs        : {args.num_envs}")
 print(f"  num_episodes    : {args.num_episodes}")
 print(f"  max_steps/ep    : {args.max_steps_per_episode}")
+print(f"  num_obstacles   : {args.num_obstacles}")
+print(f"  distance_mode   : {args.distance_mode}")
+print(f"  state_dim       : {env.state_dim}")
 print(f"  hidden_dim      : {cfg.hidden_dim}")
-print(f"  state_dim       : {cfg.state_dim}  (num_obstacles={cfg.num_obstacles}, k_nearest={cfg.k_nearest}, state_scale={cfg.state_scale})")
 print(f"  resume_from     : {args.resume_from or '(from scratch)'}")
 print(f"  checkpoints dir : {checkpoints_dir}")
 print(f"  tensorboard log : {log_dir}")
@@ -145,20 +148,9 @@ for episode in range(args.num_episodes):
             )
 
         if done.any():
-            unwrapped = env.unwrapped
-            rf = getattr(unwrapped, "_last_reached_flag", None)
-            oob = getattr(unwrapped, "_last_out_of_bounds", None)
-            cr = getattr(unwrapped, "_last_any_contact", None)  # [obstacles-patch]
-            done_idx = done.nonzero(as_tuple=True)[0].tolist()
-            for i in done_idx:
-                if rf is not None and rf[i].item():
-                    outcome_window.append("reached")
-                elif cr is not None and cr[i].item():
-                    outcome_window.append("crashed")
-                elif oob is not None and oob[i].item():
-                    outcome_window.append("out_of_bounds")
-                else:
-                    outcome_window.append("timeout")
+            outcomes = env.last_outcomes()
+            for i in done.nonzero(as_tuple=True)[0].tolist():
+                outcome_window.append(outcomes[i])
 
         episode_return += reward
         state = next_state
@@ -201,25 +193,21 @@ for episode in range(args.num_episodes):
     writer.add_scalar("Train/buffer_size", len(replay_buffer), episode)
 
     total_outcomes = len(outcome_window)
+    counts = Counter(outcome_window)
+    pct = {k: counts[k] / total_outcomes * 100 if total_outcomes else 0.0 for k in OUTCOMES}
     if total_outcomes > 0:
-        for k in ["reached", "crashed", "out_of_bounds", "timed_out"]:
-            src_key = "timeout" if k == "timed_out" else k
-            pct = sum(1 for o in outcome_window if o == src_key) / total_outcomes * 100
-            writer.add_scalar(f"termination/{k}", pct, episode)
+        for k in OUTCOMES:
+            writer.add_scalar(f"termination/{k}", pct[k], episode)
 
     if episode % 10 == 0:
         elapsed = time.time() - train_start_time
         eps_per_sec = (episode + 1) / elapsed if elapsed > 0 else 0
         remaining = (args.num_episodes - episode - 1) / eps_per_sec if eps_per_sec > 0 else 0
-        r_pct = sum(1 for o in outcome_window if o == "reached") / total_outcomes * 100 if total_outcomes else 0
-        c_pct = sum(1 for o in outcome_window if o == "crashed") / total_outcomes * 100 if total_outcomes else 0
-        o_pct = sum(1 for o in outcome_window if o == "out_of_bounds") / total_outcomes * 100 if total_outcomes else 0
-        t_pct = sum(1 for o in outcome_window if o == "timeout") / total_outcomes * 100 if total_outcomes else 0
         print(f"[DQN] episode {episode:>4}/{args.num_episodes}  "
               f"return={mean_return:>7.2f}  MA50={ma50:>7.2f}  epsilon={epsilon:.3f}  "
               f"buffer={len(replay_buffer):>5}  elapsed={elapsed/60:>5.1f}min  ETA={remaining/60:>5.1f}min")
-        print(f"       [last {total_outcomes} terminations] reached={r_pct:>5.1f}%  "
-              f"crashed={c_pct:>5.1f}%  out_of_bounds={o_pct:>5.1f}%  timeout={t_pct:>5.1f}%")
+        print(f"       [last {total_outcomes} terminations] "
+              + "  ".join(f"{k}={pct[k]:>5.1f}%" for k in OUTCOMES))
 
     if episode % 100 == 0 and episode > 0:
         ckpt_path = os.path.join(checkpoints_dir, f"{run_name}_ep{episode}.pt")

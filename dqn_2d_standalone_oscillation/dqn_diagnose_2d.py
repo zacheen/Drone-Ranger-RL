@@ -11,23 +11,25 @@ import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
-from dqn_2d_env import DroneNav2DEnv
+from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
 parser.add_argument("--num_envs", type=int, default=64)
 parser.add_argument("--num_episodes", type=int, default=200)
 parser.add_argument("--csv_out", type=str, default=None)
+add_env_args(parser)
 add_config_args(parser)
 args = parser.parse_args()
 cfg: DQNConfig = config_from_args(args)
 
 device = "cpu"
-env = DroneNav2DEnv(num_envs=args.num_envs, cfg=cfg, device=device)
-q_net = QNetwork(state_dim=cfg.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
+env = env_from_args(args, args.num_envs, cfg, device)
+q_net = QNetwork(state_dim=env.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim).to(device)
 q_net.load_state_dict(torch.load(args.checkpoint, map_location=device))
 q_net.eval()
-print(f"[DIAG2D] loaded checkpoint: {args.checkpoint}")
+print(f"[DIAG2D] loaded checkpoint: {args.checkpoint}  "
+      f"num_obstacles={args.num_obstacles}  distance_mode={args.distance_mode}")
 
 obs_dict, _ = env.reset()
 state = obs_dict["dqn_state"]
@@ -49,15 +51,10 @@ while len(episodes) < args.num_episodes:
 
     if done.any():
         done_idx = done.nonzero(as_tuple=True)[0].tolist()
+        outcomes = env.last_outcomes()
         for i in done_idx:
-            if env._last_reached_flag[i].item():
-                outcome = "reached"
-            elif env._last_out_of_bounds[i].item():
-                outcome = "out_of_bounds"
-            else:
-                outcome = "timed_out"
             episodes.append({
-                "episode_id": len(episodes), "outcome": outcome,
+                "episode_id": len(episodes), "outcome": outcomes[i],
                 "steps": int(ep_step[i].item()), "total_reward": round(cum_reward[i].item(), 3),
             })
         cum_reward[done_idx] = 0
@@ -71,7 +68,7 @@ for e in episodes:
     outcome_counts[e["outcome"]] = outcome_counts.get(e["outcome"], 0) + 1
 total = len(episodes)
 print(f"[DIAG2D] Outcome distribution (n={total}):")
-for k in ["reached", "out_of_bounds", "timed_out"]:
+for k in OUTCOMES:
     v = outcome_counts.get(k, 0)
     print(f"  {k:<14}: {v:>4} ({v/total*100:>5.1f}%)")
 
