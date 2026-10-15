@@ -120,11 +120,12 @@ left/right turn judgment is symmetric and confident.
 `--num_obstacles` adds obstacles to the environment, and `train_dqn.py`, `dqn_diagnose_2d.py`, `eval_2d.py`, `trace_2d.py` and `plot_2d_trajectory.py` all accept it, along with `--distance_mode` and `--k_nearest`.
 The default of 0 is Stage 0, pure navigation, and behaves exactly as it did before obstacles existed, down to the random number stream.
 
-The obstacle layout is ported from the Isaac Lab environment's `_reset_idx`.
-- The same five obstacles, three upright cylinders and two square boxes, are strung along a random flight direction starting about 2.5 m from the drone.
-- The target sits in a gap between two neighboring obstacles that is wide enough to fly through, or past the last obstacle when no gap qualifies.
-- On half of the resets the first obstacle is parked far away (rehearsal mixing), so the replay buffer keeps pure-navigation experience.
-- Touching an obstacle ends the episode as `contact_crash` with a reward of -50.
+The obstacle layout follows the collaborator's commit `1643e0e` rather than the Isaac Lab environment.
+- The start, target and heading are drawn exactly as in Stage 0, so the target distribution is the same with and without obstacles.
+- Up to five circles of radius 0.5 m are then rejection-sampled in the same 10 m box, at least 1.2 m from the start and 1.75 m from the target.
+- The first obstacle is drawn on the middle half of the start-target segment, so the direct path is blocked and has to be flown around.
+- An obstacle that finds no valid spot in 30 draws is parked far away, so an episode can have fewer obstacles than `--num_obstacles`.
+- Touching an obstacle, meaning the drone's center coming within 0.2 m of its surface, ends the episode as `contact_crash` with a reward of -50.
 
 `d_front`, `d_left` and `d_right` are not simulated sensor readings.
 `obstacle_geometry.py` computes each one exactly from the obstacle shapes, as the distance from the drone's center to the nearest obstacle surface inside a 73 degree horizontal sector facing forward, left or right, capped at 10 m.

@@ -68,8 +68,9 @@ def camera_readings(pos, yaw, circle_xy, circle_r, box_xy, box_half, cameras=CAM
     """[d_front, d_left, d_right] as the three cameras would report them, (N, 3).
 
     Arguments as in obstacle_sector_distances. Assumes no camera sits inside
-    an obstacle, which holds before the drone's center reaches DRONE_RADIUS
-    of a surface because every mount point is closer to the center than that.
+    an obstacle. The 0.25 m mounts fit inside the Isaac drone's 0.3 m body, but
+    the env's DRONE_RADIUS of 0.2 m lets a camera enter an obstacle during the
+    last 0.05 m before a crash, where its readings see through the surface.
     """
     n = pos.shape[0]
     cos_yaw, sin_yaw = torch.cos(yaw), torch.sin(yaw)
