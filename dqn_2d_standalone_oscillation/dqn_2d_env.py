@@ -28,11 +28,11 @@ Its norm is the exact distance, with no sector and so no blind spot. An
 obstacle beyond MAX_SENSE_RANGE or parked leaves its slot all zeros, so the
 input size depends on k_nearest only and stays fixed across num_obstacles.
 
-num_obstacles=1..5 (Stage 1) ports the layout from the Isaac env's
-_reset_idx: obstacles strung along a random flight direction, the target in
-a gap between them or past them, and rehearsal mixing. Its hard-case
-injection is not ported because the Isaac env runs it with hard_case_frac=0.
-Touching an obstacle ends the episode as a crash.
+num_obstacles=1..5 (Stage 1) uses the layout of the collaborator's commit
+1643e0e rather than the Isaac env's. The target is drawn exactly as in Stage 0,
+then circles of radius OBSTACLE_RADIUS are rejection-sampled in the same box,
+clear of the start and the target, with obstacle 0 forced onto the start-target
+segment so it has to be avoided. Touching an obstacle ends the episode as a crash.
 
 Interface intentionally mirrors gymnasium's reset()/step() so train_dqn.py
 needs minimal changes to switch environments.
@@ -52,19 +52,17 @@ TARGET_POS_RANGE = 5.0   # start/target sampled uniformly in [-5, 5] on each axi
 REACHED_THRESHOLD = 0.75
 OUT_OF_BOUNDS_DIST = 40.0  # matches the real env's widened boundary
 
-# Obstacle roster in the Isaac env's order, three upright cylinders and then
-# two axis-aligned boxes, with the physical footprints its _setup_scene spawns.
-CYLINDER_RADII = (0.3, 0.3, 0.4)
-BOX_HALF_EXTENTS = ((0.5, 0.5), (0.75, 0.75))
+# Obstacle roster and crash rule of commit 1643e0e, five circles and no boxes.
+OBSTACLE_RADIUS = 0.5
+CYLINDER_RADII = (OBSTACLE_RADIUS,) * 5
+BOX_HALF_EXTENTS = ()
 NUM_CYLINDERS = len(CYLINDER_RADII)
 MAX_OBSTACLES = NUM_CYLINDERS + len(BOX_HALF_EXTENTS)
-DRONE_RADIUS = 0.3  # prop span, a crash once the drone's center is this close to a surface
-# Layout-only clearance radii, copied from the Isaac env's _obstacle_radius
-# (footprint bound + DRONE_RADIUS). Its 0.8 for Cyl0 exceeds the 0.3 radius
-# that cylinder physically has.
-PLACEMENT_RADII = tuple(r + DRONE_RADIUS for r in (0.8, 0.3, 0.4, 0.707, 1.06))
-OBSTACLE_MIN_SPACING = 2.5  # along-path distance between consecutive obstacles
-REHEARSAL_PROB = 0.5
+DRONE_RADIUS = 0.2  # a crash once the drone's center is this close to a surface
+OBSTACLE_CLEARANCE = 0.5  # extra spawn gap around the start and the target
+START_KEEPOUT = OBSTACLE_RADIUS + DRONE_RADIUS + OBSTACLE_CLEARANCE  # min center distance from the start
+TARGET_KEEPOUT = OBSTACLE_RADIUS + REACHED_THRESHOLD + OBSTACLE_CLEARANCE  # min center distance from the target
+PLACEMENT_ATTEMPTS = 30  # a slot still invalid after this many draws stays parked
 SENSOR_HALF_FOV = math.atan(TAN_HALF_FOV)  # half of the cameras' 73 deg HFOV
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
@@ -98,8 +96,7 @@ class DroneNav2DEnv:
         self.step_count = torch.zeros(num_envs, dtype=torch.long, device=device)
 
         self._circle_r = torch.tensor(CYLINDER_RADII, device=device)
-        self._box_half = torch.tensor(BOX_HALF_EXTENTS, device=device)
-        self._placement_r = torch.tensor(PLACEMENT_RADII, device=device)
+        self._box_half = torch.tensor(BOX_HALF_EXTENTS, device=device).reshape(-1, 2)
         # Inactive obstacles are parked where the Isaac env parks them, far
         # beyond sensing range, so they never register in a reading.
         self._parked_xy = torch.stack([
@@ -107,7 +104,7 @@ class DroneNav2DEnv:
             torch.full((MAX_OBSTACLES,), 1000.0, device=device),
         ], dim=-1)
         self.obstacle_xy = self._parked_xy.expand(num_envs, -1, -1).clone()  # (N, MAX_OBSTACLES, 2)
-        # False for obstacles parked this episode, by num_obstacles or by rehearsal mixing.
+        # False for obstacles parked this episode, beyond num_obstacles or unplaceable.
         self.obstacle_active = torch.zeros(num_envs, MAX_OBSTACLES, dtype=torch.bool, device=device)
 
     def _sample_positions(self, env_ids):
@@ -120,89 +117,41 @@ class DroneNav2DEnv:
         # distribution than Isaac Lab's, making any comparison between the
         # two environments' q_sweep/margin results invalid.
         self.pos[env_ids] = torch.zeros(n, 2, device=self.device).uniform_(-1.0, 1.0)
-        # The Stage 0 branch draws random numbers in the same order as before
-        # obstacles existed, so a seeded Stage 0 run reproduces older runs.
-        if self.num_obstacles == 0:
-            self.target[env_ids] = (torch.rand(n, 2, device=self.device) * 2 - 1) * TARGET_POS_RANGE
-        else:
-            target, obstacle_xy, active = self._sample_obstacle_layout(self.pos[env_ids])
-            self.target[env_ids] = target
-            self.obstacle_xy[env_ids] = obstacle_xy
-            self.obstacle_active[env_ids] = active
+        # Obstacles are drawn last, so a seeded Stage 0 run reproduces older runs.
+        self.target[env_ids] = (torch.rand(n, 2, device=self.device) * 2 - 1) * TARGET_POS_RANGE
         self.yaw[env_ids] = torch.rand(n, device=self.device) * 2 * math.pi - math.pi
         self.step_count[env_ids] = 0
+        if self.num_obstacles > 0:
+            self._sample_obstacles(env_ids)
 
-    def _sample_obstacle_layout(self, start_xy):
-        """The Isaac env's obstacle and target placement for num_obstacles
-        active obstacles. Returns target (n, 2), obstacle centers
-        (n, MAX_OBSTACLES, 2) with the inactive ones parked, and the
-        (n, MAX_OBSTACLES) active mask."""
-        n, k, dev = start_xy.shape[0], self.num_obstacles, self.device
-        heading = torch.rand(n, device=dev) * 2 * math.pi
-        path_dir = torch.stack([torch.cos(heading), torch.sin(heading)], dim=-1)
-        perp_dir = torch.stack([-path_dir[:, 1], path_dir[:, 0]], dim=-1)
-
-        jitter = OBSTACLE_MIN_SPACING * 0.4
-        along = (2.5 + torch.arange(MAX_OBSTACLES, device=dev) * OBSTACLE_MIN_SPACING
-                 + torch.empty(n, MAX_OBSTACLES, device=dev).uniform_(-jitter, jitter))
-        lateral = torch.empty(n, MAX_OBSTACLES, device=dev).uniform_(-3.0, 3.0)
-
-        # Target at the middle of a random gap, between two along-path
-        # neighbors, wide enough to fly through. Its lateral position then
-        # depends on the layout, so one wide swing around everything misses it.
-        has_gap = torch.zeros(n, dtype=torch.bool, device=dev)
-        gap_along = torch.zeros(n, device=dev)
-        gap_lateral = torch.zeros(n, device=dev)
-        if k >= 2:
-            order = torch.argsort(along[:, :k], dim=-1)
-            s_along = along[:, :k].gather(1, order)
-            s_lat = lateral[:, :k].gather(1, order)
-            s_r = self._placement_r[:k][order]
-            valid = (s_lat[:, 1:] - s_lat[:, :-1]).abs() > s_r[:, :-1] + s_r[:, 1:] + 0.3
-            has_gap = valid.any(dim=-1)
-            score = torch.where(valid, torch.rand(n, k - 1, device=dev), torch.full((n, k - 1), -1.0, device=dev))
-            g = score.argmax(dim=-1, keepdim=True)
-            gap_along = (s_along.gather(1, g) + s_along.gather(1, g + 1)).squeeze(1) / 2.0
-            gap_lateral = (s_lat.gather(1, g) + s_lat.gather(1, g + 1)).squeeze(1) / 2.0
-
-        # Without a usable gap, the target goes 0 to 10 m beyond the last obstacle's
-        # clearance radius plus 1 m.
-        near = along[:, k - 1] + self._placement_r[k - 1] + 1.0
-        fallback_along = torch.rand(n, device=dev) * 10.0 + near
-        if k == 1:
-            # 0.4 to 1.2 m to a random side of the lone obstacle keeps it on the
-            # direct path without making both ways around it equally good.
-            side = torch.where(torch.rand(n, device=dev) < 0.5, -1.0, 1.0)
-            fallback_lateral = lateral[:, 0] + side * torch.empty(n, device=dev).uniform_(0.4, 1.2)
-        else:
-            fallback_lateral = torch.empty(n, device=dev).uniform_(-1.0, 1.0)
-        target_along = torch.where(has_gap, gap_along, fallback_along)
-        target_lateral = torch.where(has_gap, gap_lateral, fallback_lateral)
-        target = start_xy + target_along.unsqueeze(-1) * path_dir + target_lateral.unsqueeze(-1) * perp_dir
-
-        obstacles = (start_xy.unsqueeze(1) + along.unsqueeze(-1) * path_dir.unsqueeze(1)
-                     + lateral.unsqueeze(-1) * perp_dir.unsqueeze(1))
-        obstacles[:, k:] = self._parked_xy[k:]
-        # Rehearsal mixing parks obstacle 0 on some resets, so the replay
-        # buffer keeps pure-navigation transitions (catastrophic forgetting,
-        # main README finding 2). The target keeps the spot obstacle 0 gave it.
-        rehearsal = (torch.rand(n, device=dev) < REHEARSAL_PROB).unsqueeze(-1)
-        obstacles[:, 0] = torch.where(rehearsal, torch.full_like(obstacles[:, 0], 2000.0), obstacles[:, 0])
-        active = (torch.arange(MAX_OBSTACLES, device=dev) < k).expand(n, -1).clone()
-        active[:, 0] &= ~rehearsal[:, 0]
-
-        # Push the target out of each obstacle's clearance radius plus a 0.5 m
-        # arrival margin. One obstacle at a time, as in the Isaac env, so a push
-        # can land inside another obstacle's radius on a crowded layout. Over
-        # 50000 resets per k, with k >= 3 that left about 0.03% of targets
-        # within DRONE_RADIUS of a surface (closest 0.23 m) and none inside one.
-        for i in range(MAX_OBSTACLES):
-            safety = self._placement_r[i] + 0.5
-            diff = target - obstacles[:, i]
-            d = diff.norm(dim=-1, keepdim=True)
-            pushed = obstacles[:, i] + diff / d.clamp(min=1e-6) * safety
-            target = torch.where(d < safety, pushed, target)
-        return target, obstacles, active
+    def _sample_obstacles(self, env_ids):
+        """Rejection-sample the active obstacle centers as commit 1643e0e does.
+        A center must lie START_KEEPOUT from the start and TARGET_KEEPOUT from the
+        target. Obstacle 0 is drawn on the middle half of the start-target segment,
+        within OBSTACLE_RADIUS of it sideways. A slot that fails every attempt stays
+        parked, so an episode can have fewer than num_obstacles obstacles."""
+        n, k, dev = len(env_ids), self.num_obstacles, self.device
+        start, tgt = self.pos[env_ids], self.target[env_ids]
+        seg = tgt - start
+        perp = torch.stack([-seg[:, 1], seg[:, 0]], dim=-1) / seg.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        out = self._parked_xy[:k].expand(n, -1, -1).clone()
+        todo = torch.ones(n, k, dtype=torch.bool, device=dev)
+        for _ in range(PLACEMENT_ATTEMPTS):
+            cand = (torch.rand(n, k, 2, device=dev) * 2 - 1) * TARGET_POS_RANGE
+            along = torch.rand(n, device=dev) * 0.5 + 0.25
+            lateral = (torch.rand(n, device=dev) * 2 - 1) * OBSTACLE_RADIUS
+            cand[:, 0] = start + seg * along[:, None] + perp * lateral[:, None]
+            ok = (((cand - start[:, None]).norm(dim=-1) >= START_KEEPOUT)
+                  & ((cand - tgt[:, None]).norm(dim=-1) >= TARGET_KEEPOUT))
+            out = torch.where((todo & ok)[..., None], cand, out)
+            todo &= ~ok
+            if not todo.any():
+                break
+        self.obstacle_xy[env_ids] = self._parked_xy
+        self.obstacle_xy[env_ids, :k] = out
+        active = torch.zeros(n, MAX_OBSTACLES, dtype=torch.bool, device=dev)
+        active[:, :k] = ~todo
+        self.obstacle_active[env_ids] = active
 
     def reset(self):
         env_ids = torch.arange(self.num_envs, device=self.device)

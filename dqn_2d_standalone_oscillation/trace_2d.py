@@ -39,7 +39,7 @@ state = obs_dict["dqn_state"]
 print(f"[TRACE] start={env.pos[0].tolist()}  target={env.target[0].tolist()}")
 for i in range(args.num_obstacles):
     x, y = env.obstacle_xy[0, i].tolist()
-    parked = "" if env.obstacle_active[0, i] else "  (parked by rehearsal mixing)"
+    parked = "" if env.obstacle_active[0, i] else "  (parked, no valid spot found)"
     print(f"[TRACE] obstacle {i} at ({x:.2f}, {y:.2f}){parked}")
 print()
 

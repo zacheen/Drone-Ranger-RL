@@ -154,28 +154,19 @@ def _isaac_literal(tree, name):
 
 
 def test_isaac_constants_match():
-    """The sensor field of view and the obstacle layout must keep matching the Isaac env,
-    or the 2D readings stop being the noise-free version of what its cameras see.
+    """The sensor field of view must keep matching the Isaac env, or the 2D readings stop
+    being the noise-free version of what its cameras see. The obstacle layout follows
+    commit 1643e0e instead and is checked by test_layout_invariants.
     The far clip is checked by test_camera_emulation.py."""
     tree = _isaac_tree()
     half_fov = math.atan(_isaac_literal(tree, "_horizontal_aperture") / (2.0 * _isaac_literal(tree, "_focal_length")))
     assert math.isclose(half_fov, E.SENSOR_HALF_FOV)
-    drone_radius = _isaac_literal(tree, "drone_radius")
-    assert drone_radius == E.DRONE_RADIUS
-    # _obstacle_radius is built from expressions such as `0.8 + drone_radius`, so evaluate them.
-    radius_node = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign)
-                       and getattr(n.targets[0], "attr", None) == "_obstacle_radius")
-    placement = tuple(eval(compile(ast.Expression(e), ISAAC_ENV, "eval"), {"drone_radius": drone_radius})
-                      for e in radius_node.value.args[0].elts)
-    assert all(math.isclose(a, b) for a, b in zip(placement, E.PLACEMENT_RADII)) and len(placement) == len(E.PLACEMENT_RADII)
-    assert _isaac_literal(tree, "obstacle_min_spacing") == E.OBSTACLE_MIN_SPACING
-    assert _isaac_literal(tree, "REHEARSAL_PROB") == E.REHEARSAL_PROB
-    print("  Isaac Lab constants: FOV, drone radius, layout radii, spacing and rehearsal match")
+    print("  Isaac Lab constants: FOV matches")
 
 
 def _env_obstacles(env):
-    return (env.obstacle_xy[:, :E.NUM_CYLINDERS], torch.tensor(E.CYLINDER_RADII),
-            env.obstacle_xy[:, E.NUM_CYLINDERS:], torch.tensor(E.BOX_HALF_EXTENTS))
+    return (env.obstacle_xy[:, :E.NUM_CYLINDERS], env._circle_r,
+            env.obstacle_xy[:, E.NUM_CYLINDERS:], env._box_half)
 
 
 def test_stage0_shortcuts_match_geometry():
@@ -191,21 +182,33 @@ def test_stage0_shortcuts_match_geometry():
 
 
 def test_layout_invariants():
+    torch.manual_seed(0)
+    stage0 = E.DroneNav2DEnv(2000, DQNConfig(), "cpu")
+    stage0.reset()
     for k in range(1, E.MAX_OBSTACLES + 1):
-        torch.manual_seed(k)
+        torch.manual_seed(0)
         env = E.DroneNav2DEnv(2000, DQNConfig(), "cpu", num_obstacles=k)
         obs, _ = env.reset()
+        # Obstacles are drawn after the start, target and heading, which follow Stage 0 exactly.
+        assert torch.equal(env.pos, stage0.pos) and torch.equal(env.target, stage0.target) and torch.equal(env.yaw, stage0.yaw)
         active = env.obstacle_active
-        assert active[:, 1:k].all() and not active[:, k:].any(), f"k={k} active mask"
-        assert 0.4 < (~active[:, 0]).float().mean() < 0.6, f"k={k} rehearsal fraction"
+        assert not active[:, k:].any(), f"k={k} active beyond num_obstacles"
         parked_far = (env.obstacle_xy - env.pos.unsqueeze(1)).norm(dim=-1) > 100
         assert torch.equal(parked_far, ~active), f"k={k} parked obstacles must be far away"
+        centers = env.obstacle_xy[:, :k]
+        placed = active[:, :k]
+        assert ((centers - env.pos[:, None]).norm(dim=-1)[placed] >= E.START_KEEPOUT - 1e-5).all(), f"k={k} start keepout"
+        assert ((centers - env.target[:, None]).norm(dim=-1)[placed] >= E.TARGET_KEEPOUT - 1e-5).all(), f"k={k} target keepout"
+        assert (centers[placed].abs() <= E.TARGET_POS_RANGE + E.OBSTACLE_RADIUS + 1e-5).all(), f"k={k} outside the box"
+        # Obstacle 0, when placed, sits on the middle half of the start-target segment.
+        seg = env.target - env.pos
+        rel = centers[:, 0] - env.pos
+        along = (rel * seg).sum(-1) / (seg * seg).sum(-1)
+        side = (rel[:, 0] * seg[:, 1] - rel[:, 1] * seg[:, 0]).abs() / seg.norm(dim=-1)
+        on = placed[:, 0]
+        assert ((along[on] >= 0.25 - 1e-5) & (along[on] <= 0.75 + 1e-5)).all() and (side[on] <= E.OBSTACLE_RADIUS + 1e-5).all(), f"k={k} obstacle 0 off the path"
         cx, cr, bx, bh = _env_obstacles(env)
         assert (og.obstacle_surface_distance(env.pos, cx, cr, bx, bh) > E.DRONE_RADIUS).all(), f"k={k} spawn in contact"
-        # The one-at-a-time target push (see _sample_obstacle_layout) can leave a
-        # target within DRONE_RADIUS of a surface but never inside an obstacle, and
-        # REACHED_THRESHOLD still lets the drone reach it from a clear side.
-        assert (og.obstacle_surface_distance(env.target, cx, cr, bx, bh) > 0).all(), f"k={k} target inside an obstacle"
         assert torch.isfinite(obs["dqn_state"]).all()
     print(f"  layout invariants: hold for 2000 resets at each k = 1..{E.MAX_OBSTACLES}")
 
@@ -218,13 +221,13 @@ def test_contact_crash_and_obs_wiring():
     env.pos[:] = 0.0
     env.yaw[:] = 0.0
     env.target[:] = torch.tensor([-20.0, 0.0])         # behind the drone, never reached
-    env.obstacle_xy[0, 1] = torch.tensor([0.64, 0.0])  # cylinder r=0.3, surface 0.34 m ahead, so one 0.05 m step ends within DRONE_RADIUS
-    env.obstacle_xy[1, 3] = torch.tensor([0.84, 0.0])  # box half 0.5, same geometry
+    env.obstacle_xy[0, 1] = torch.tensor([0.74, 0.0])  # r=0.5, surface 0.24 m ahead, so one 0.05 m step ends within DRONE_RADIUS
+    env.obstacle_xy[1, 3] = torch.tensor([0.0, 0.69])  # beside the drone, surface 0.19 m away, already within DRONE_RADIUS
     env.obstacle_xy[2, 1] = torch.tensor([5.0, 0.0])   # clear
     env.yaw[3] = math.pi / 2
     env.obstacle_xy[3, 1] = torch.tensor([0.0, 3.0])   # ahead only because of the heading
     d = env._get_obs()[0]["dqn_state"]
-    assert abs(d[2, 0].item() - 4.7) < 1e-4 and abs(d[3, 0].item() - 2.7) < 1e-4
+    assert abs(d[2, 0].item() - 4.5) < 1e-4 and abs(d[3, 0].item() - 2.5) < 1e-4
     _, reward, terminated, _, _ = env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(4, -1))  # full-speed forward
     assert terminated.tolist() == [True, True, False, False]
     assert (reward[:2] < -49).all() and (reward[2:] > -1).all()
@@ -251,17 +254,17 @@ def test_coords_mode_hand_checked():
     env.pos[:] = 0.0
     env.yaw[:] = 0.0
     env.target[:] = torch.tensor([3.0, 4.0])
-    env.obstacle_xy[0, 1] = torch.tensor([2.0, 0.0])   # cylinder r=0.3, surface point (1.7, 0)
-    env.obstacle_xy[0, 3] = torch.tensor([0.0, -3.0])  # box half 0.5, surface point (0, -2.5)
+    env.obstacle_xy[0, 1] = torch.tensor([2.0, 0.0])   # r=0.5, surface point (1.5, 0)
+    env.obstacle_xy[0, 3] = torch.tensor([0.0, -3.0])  # r=0.5, surface point (0, -2.5)
     env.yaw[1] = math.pi / 2
     env.obstacle_xy[1, 1] = torch.tensor([0.0, 2.0])   # world +y is body +x at this heading
-    env.obstacle_xy[2, 1] = torch.tensor([12.0, 0.0])  # surface 11.7 m away, beyond sensing range
+    env.obstacle_xy[2, 1] = torch.tensor([12.0, 0.0])  # surface 11.5 m away, beyond sensing range
     env.obstacle_xy[2, 2] = torch.tensor([1.0, 0.0])
-    env.obstacle_active[2, 2] = False                  # parked by rehearsal mixing, so never seen
+    env.obstacle_active[2, 2] = False                  # inactive, so never seen
     s = env._get_obs()[0]["dqn_state"]
     expected = torch.tensor([
-        [1.7, 0.0, 1.0, 0.0, -2.5, 1.0],
-        [1.7, 0.0, 1.0, 0.0, 0.0, 0.0],
+        [1.5, 0.0, 1.0, 0.0, -2.5, 1.0],
+        [1.5, 0.0, 1.0, 0.0, 0.0, 0.0],
         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     ])
     assert torch.allclose(s[:, :6], expected, atol=1e-5), s
