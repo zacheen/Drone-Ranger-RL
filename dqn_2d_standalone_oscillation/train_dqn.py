@@ -140,9 +140,9 @@ for episode in range(args.num_episodes):
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         next_state = obs_dict["dqn_state"]
         done = terminated | truncated
-        # A timeout only truncates the episode, so its target still bootstraps from
-        # next_state; going out of bounds stays terminal.
-        terminal = terminated | env._last_out_of_bounds
+        # Only reaching the target or crashing is terminal. A timeout or leaving the
+        # bounds just cuts the episode off, so its target still bootstraps from next_state.
+        terminal = terminated
 
         for i in range(args.num_envs):
             replay_buffer.push(
