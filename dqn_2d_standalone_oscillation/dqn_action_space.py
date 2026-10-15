@@ -39,7 +39,9 @@ _cfg = DQNConfig()
 
 NUM_ACTIONS = _cfg.num_actions
 STATE_DIM = _cfg.state_dim
-ACTION_NAMES = ["forward", "turn_left", "turn_right"]
+# Action index = speed * NUM_TURNS + turn, speed in (stop, forward), turn in (none, left, right).
+NUM_SPEEDS, NUM_TURNS = 2, 3
+ACTION_NAMES = ["hover", "turn_left", "turn_right", "forward", "fwd_left", "fwd_right"]
 
 
 def _arctanh(y):
@@ -58,22 +60,16 @@ _YAW_TURN_RAW = _arctanh(_cfg.turn_rate / _cfg.max_yaw_rate)
 
 
 def discrete_action_to_continuous(action_idx: torch.Tensor, device) -> torch.Tensor:
-    """action_idx: (N,) values 0-2. Returns (N,3) continuous action
+    """action_idx: (N,) values 0-5. Returns (N,3) continuous action
     tensor, ready to pass to env.step(). No dy parameter needed --
     unlike v1, turn direction is a discrete choice the network makes
     (left vs right), not something computed dynamically from dy's sign."""
     n = action_idx.shape[0]
     out = torch.zeros(n, 3, device=device)
-
-    mask0 = action_idx == 0  # forward
-    mask1 = action_idx == 1  # turn left
-    mask2 = action_idx == 2  # turn right
-
-    out[mask0, 0] = _VX_FORWARD_RAW
-    out[mask1, 0] = _VX_ZERO_RAW
-    out[mask1, 2] = _YAW_TURN_RAW
-    out[mask2, 0] = _VX_ZERO_RAW
-    out[mask2, 2] = -_YAW_TURN_RAW
+    speed, turn = action_idx // NUM_TURNS, action_idx % NUM_TURNS
+    out[:, 0] = torch.where(speed == 1, _VX_FORWARD_RAW, _VX_ZERO_RAW)
+    out[turn == 1, 2] = _YAW_TURN_RAW
+    out[turn == 2, 2] = -_YAW_TURN_RAW
     return out
 
 
@@ -84,11 +80,16 @@ class QNetwork(nn.Module):
         state_dim = state_dim if state_dim is not None else cfg.state_dim
         action_dim = action_dim if action_dim is not None else cfg.num_actions
         hidden_dim = hidden_dim if hidden_dim is not None else cfg.hidden_dim
+        if action_dim != NUM_SPEEDS * NUM_TURNS:
+            raise ValueError(f"the two-head network outputs {NUM_SPEEDS * NUM_TURNS} actions, got action_dim={action_dim}")
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, action_dim)
+        self.speed_head = nn.Linear(hidden_dim, NUM_SPEEDS)
+        self.turn_head = nn.Linear(hidden_dim, NUM_TURNS)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        # Q(s, speed, turn) = Q_speed + Q_turn, flattened to the action index order above.
+        q = self.speed_head(x).unsqueeze(-1) + self.turn_head(x).unsqueeze(-2)
+        return q.flatten(start_dim=-2)

@@ -14,7 +14,7 @@ import math
 import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
-from dqn_action_space import QNetwork, ACTION_NAMES
+from dqn_action_space import QNetwork, ACTION_NAMES, NUM_TURNS
 
 
 def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float, device: str):
@@ -55,8 +55,9 @@ def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float
 
         pos_mask = angles_deg > 5.0
         neg_mask = angles_deg < -5.0
-        pos_left_win = (best_action[pos_mask] == 1).float().mean().item() * 100 if pos_mask.any() else float("nan")
-        neg_right_win = (best_action[neg_mask] == 2).float().mean().item() * 100 if neg_mask.any() else float("nan")
+        turn = best_action % NUM_TURNS  # 1 = left, 2 = right, at either speed
+        pos_left_win = (turn[pos_mask] == 1).float().mean().item() * 100 if pos_mask.any() else float("nan")
+        neg_right_win = (turn[neg_mask] == 2).float().mean().item() * 100 if neg_mask.any() else float("nan")
         print("-" * 100)
         print(f"[symmetry check] heading > +5 deg -> picked 'turn_left': {pos_left_win:.1f}%")
         print(f"[symmetry check] heading < -5 deg -> picked 'turn_right': {neg_right_win:.1f}%")

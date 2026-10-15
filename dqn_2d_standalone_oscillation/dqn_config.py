@@ -18,7 +18,7 @@ from dataclasses import dataclass, fields
 class DQNConfig:
     # ── Network architecture ──
     state_dim: int = 5
-    num_actions: int = 3
+    num_actions: int = 6
     hidden_dim: int = 128  # raised from 64 -- testing whether network
                             # capacity was the bottleneck (see experiment log)
 
