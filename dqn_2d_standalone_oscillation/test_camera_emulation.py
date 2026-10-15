@@ -106,8 +106,9 @@ def test_constants_match_isaac():
         assert width == height == camera.columns, (prim, width, height)
         assert math.isclose(aperture / (2.0 * focal), cam.TAN_HALF_FOV), prim
         assert clip == (cam.NEAR_CLIP, cam.FAR_CLIP), (prim, clip)
-    # camera_readings assumes no camera is inside an obstacle before a crash.
-    assert max(math.hypot(c.mount_x, c.mount_y) for c in cam.CAMERAS) < E.DRONE_RADIUS
+    # The mounts fit inside the Isaac drone's body. The env's DRONE_RADIUS follows commit
+    # 1643e0e and is smaller, see camera_readings for what that costs.
+    assert max(math.hypot(c.mount_x, c.mount_y) for c in cam.CAMERAS) < 0.3
     print("  camera table matches the Isaac TiledCameraCfg calls")
 
 
@@ -165,13 +166,13 @@ def test_env_camera_mode():
     env = E.DroneNav2DEnv(256, DQNConfig(), "cpu", num_obstacles=0, distance_mode="camera")
     obs, _ = env.reset()
     obstacles = (env.obstacle_xy[:, :E.NUM_CYLINDERS], f(E.CYLINDER_RADII),
-                 env.obstacle_xy[:, E.NUM_CYLINDERS:], f(E.BOX_HALF_EXTENTS))
+                 env.obstacle_xy[:, E.NUM_CYLINDERS:], env._box_half)
     assert torch.equal(obs["dqn_state"][:, :3], cam.camera_readings(env.pos, env.yaw, *obstacles))
     for k in (1, 2):
         env = E.DroneNav2DEnv(256, DQNConfig(), "cpu", num_obstacles=k, distance_mode="camera")
         obs, _ = env.reset()
         obstacles = (env.obstacle_xy[:, :E.NUM_CYLINDERS], f(E.CYLINDER_RADII),
-                     env.obstacle_xy[:, E.NUM_CYLINDERS:], f(E.BOX_HALF_EXTENTS))
+                     env.obstacle_xy[:, E.NUM_CYLINDERS:], env._box_half)
         assert torch.equal(obs["dqn_state"][:, :3], cam.camera_readings(env.pos, env.yaw, *obstacles))
     try:
         E.DroneNav2DEnv(1, DQNConfig(), "cpu", distance_mode="lidar")

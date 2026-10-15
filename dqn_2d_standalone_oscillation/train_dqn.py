@@ -15,10 +15,14 @@ environment exists (isolating the DQN/reward/network design from Isaac
 Lab simulation details) and the diagnosed issues it uncovered.
 """
 import argparse
+import json
 import os
 import random
+import subprocess
+import sys
 import time
 from collections import Counter, deque
+from dataclasses import fields
 
 import torch
 import torch.nn.functional as F
@@ -117,6 +121,38 @@ print(f"  tensorboard log : {log_dir}")
 print("=" * 70)
 train_start_time = time.time()
 
+best_ckpt = os.path.join(checkpoints_dir, f"{run_name}_best.pt")
+best_opt = os.path.join(checkpoints_dir, f"{run_name}_optimizer_best.pt")
+best_score = os.path.join(checkpoints_dir, f"{run_name}_best.json")
+# select_best.py carries the best score over from this file, so a fresh run must not inherit an old one.
+if os.path.exists(best_score) and not args.resume_from:
+    raise RuntimeError(f"{best_score} already exists, pick a new --run_name or --output_dir")
+select_cmd = ([sys.executable, os.path.join(SCRIPT_DIR, "select_best.py"), "--best", best_ckpt,
+               "--num_obstacles", str(args.num_obstacles), "--distance_mode", args.distance_mode,
+               "--k_nearest", str(args.k_nearest)]
+              + [x for f in fields(DQNConfig) for x in (f"--{f.name}", str(getattr(cfg, f.name)))])
+
+
+def _best_success():
+    if not os.path.exists(best_score):
+        return None
+    with open(best_score) as f:
+        return json.load(f)["best_success"]
+
+
+def keep_if_best(ckpt_path):
+    """Score ckpt_path in a separate process, so this run's random numbers are
+    untouched, and keep it with the matching optimizer state if it is the best so far."""
+    before = _best_success()
+    result = subprocess.run(select_cmd + ["--checkpoint", ckpt_path], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"select_best.py failed on {ckpt_path}:\n{result.stderr}")
+    print(result.stdout.strip())
+    # A rise in the recorded score, not the recorded file name, which a resumed run reuses.
+    if before is None or _best_success() > before:
+        torch.save(optimizer.state_dict(), best_opt)
+
+
 obs_dict, _ = env.reset()
 state = obs_dict["dqn_state"]
 
@@ -140,11 +176,14 @@ for episode in range(args.num_episodes):
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         next_state = obs_dict["dqn_state"]
         done = terminated | truncated
+        # Only reaching the target or crashing is terminal. A timeout or leaving the
+        # bounds just cuts the episode off, so its target still bootstraps from next_state.
+        terminal = terminated
 
         for i in range(args.num_envs):
             replay_buffer.push(
                 state[i].cpu(), action_idx[i].item(), reward[i].item(),
-                next_state[i].cpu(), done[i].item()
+                next_state[i].cpu(), terminal[i].item()
             )
 
         if done.any():
@@ -214,6 +253,7 @@ for episode in range(args.num_episodes):
         torch.save(q_net.state_dict(), ckpt_path)
         print("-" * 70)
         print(f"[DQN] checkpoint saved: {ckpt_path}")
+        keep_if_best(ckpt_path)
         print("-" * 70)
 
 print("=" * 70)
@@ -221,9 +261,11 @@ final_ckpt = os.path.join(checkpoints_dir, f"{run_name}_final.pt")
 final_opt = os.path.join(checkpoints_dir, f"{run_name}_optimizer_final.pt")
 torch.save(q_net.state_dict(), final_ckpt)
 torch.save(optimizer.state_dict(), final_opt)
+keep_if_best(final_ckpt)
 total_elapsed = time.time() - train_start_time
 print(f"[DQN] Training complete. Final checkpoint saved: {final_ckpt}")
 print(f"[DQN] Optimizer state saved: {final_opt}")
+print(f"[DQN] Best checkpoint: {best_ckpt}")
 print(f"[DQN] Total time: {total_elapsed/60:.1f} minutes")
 print(f"[DQN] tensorboard: tensorboard --logdir {tensorboard_dir}")
 print("=" * 70)
