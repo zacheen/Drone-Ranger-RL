@@ -153,7 +153,7 @@ for episode in range(args.num_episodes):
                 outcome_window.append(outcomes[i])
 
         episode_return += reward
-        state = next_state
+        state = info["reset_obs"]["dqn_state"]
 
         if len(replay_buffer) >= cfg.batch_size:
             s, a, r, s_next, d = replay_buffer.sample(cfg.batch_size)

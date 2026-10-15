@@ -303,11 +303,15 @@ class DroneNav2DEnv:
             "obstacle_xy": self.obstacle_xy.clone(), "obstacle_active": self.obstacle_active.clone(),
         }
         done = terminated | truncated
+        reset_obs = obs_dict
         if done.any():
             done_idx = done.nonzero(as_tuple=True)[0]
             self._sample_positions(done_idx)
+            reset_obs, _ = self._get_obs()
 
-        return obs_dict, reward, terminated, truncated, {}
+        # For a finished env obs_dict still shows the episode that just ended;
+        # choose the next action from info["reset_obs"] (post-resample).
+        return obs_dict, reward, terminated, truncated, {"reset_obs": reset_obs}
 
     def last_outcomes(self):
         """One OUTCOMES name per env for the latest step(). Only meaningful

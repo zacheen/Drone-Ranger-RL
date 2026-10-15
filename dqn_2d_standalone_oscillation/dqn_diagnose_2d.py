@@ -44,7 +44,6 @@ while len(episodes) < args.num_episodes:
         action_idx = q_net(state).argmax(dim=-1)
     actions_continuous = discrete_action_to_continuous(action_idx, device)
     obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
-    next_state = obs_dict["dqn_state"]
     done = terminated | truncated
     cum_reward += reward
     ep_step += 1
@@ -60,7 +59,7 @@ while len(episodes) < args.num_episodes:
         cum_reward[done_idx] = 0
         ep_step[done_idx] = 0
 
-    state = next_state
+    state = info["reset_obs"]["dqn_state"]
 
 print(f"\n[DIAG2D] collected {len(episodes)} episodes\n")
 outcome_counts = {}

@@ -307,13 +307,28 @@ def test_pre_reset_state_and_breakdown():
     print("  pre-reset snapshot and reward breakdown: hold the finished episode's last step")
 
 
+def test_reset_obs_starts_next_episode():
+    env = E.DroneNav2DEnv(2, DQNConfig(), "cpu")
+    env.reset()
+    env.pos[:] = 0.0
+    env.yaw[:] = 0.0
+    env.target[:] = torch.tensor([[0.78, 0.0], [3.0, 0.0]])  # env 0 reaches the target this step, env 1 does not
+    obs, _, terminated, truncated, info = env.step(torch.tensor([[10.0, 0.0, 0.0]] * 2))
+    assert (terminated | truncated).tolist() == [True, False]
+    fresh, _ = env._get_obs()
+    assert torch.equal(info["reset_obs"]["dqn_state"], fresh["dqn_state"])
+    assert not torch.equal(obs["dqn_state"][0], fresh["dqn_state"][0])  # env 0 resampled
+    assert torch.equal(obs["dqn_state"][1], fresh["dqn_state"][1])
+    print("  reset_obs: finished envs show the new episode, running envs are unchanged")
+
+
 if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
                  test_contact_crash_and_obs_wiring, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
-                 test_pre_reset_state_and_breakdown):
+                 test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode):
         print(test.__name__)
         test()
     print("all tests passed")
