@@ -274,9 +274,9 @@ class DroneNav2DEnv:
 
     # Weight on the multiplicative progress term. v*cos(theta) ranges
     # [-forward_speed, +forward_speed] (1.5 at default settings), so this
-    # keeps per-step reward in roughly [-0.075, +0.075] -- a similar scale
-    # to the old rew_distance term, for continuity with earlier runs.
-    K_PROGRESS = 0.05
+    # keeps per-step reward in roughly [-0.225, +0.225], three times the
+    # old rew_distance scale.
+    K_PROGRESS = 0.15
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
                          vx_signed=None, return_breakdown=False):
