@@ -39,8 +39,11 @@ automatically if no GPU is available).
 ### Training
 
 ```bash
-python3 train_dqn.py --num_envs=64 --num_episodes=1500 --run_name=my_run
+python3 train_dqn.py --num_envs=64 --num_episodes=3000 --run_name=my_run
 ```
+
+The defaults are the `baseline_v2` training setup, meaning a 500,000-transition replay buffer, an exploration floor of 0.03, the target network copied every 20 episodes and 3000 episodes.
+Experiments branch from `baseline_v2` and are trained through the curriculum below rather than with a single call.
 
 Checkpoints are saved to `checkpoints/<run_name>_ep<N>.pt` and
 `checkpoints/<run_name>_final.pt` (relative to this script's own
@@ -56,6 +59,19 @@ Any `DQNConfig` field can be overridden on the command line, e.g.
 - `--output_dir=<path>`: change where `checkpoints/` and `tensorboard/`
   are created (defaults to this script's own directory).
 - `--num_obstacles=<k>` turns on k active obstacles per episode, from 0 (the default, pure navigation) to 5. See [Obstacles and ground-truth distances](#obstacles-and-ground-truth-distances).
+
+### Curriculum
+
+```bash
+python3 curriculum.py --init <stage-0 checkpoint> --output_root runs/my_chain
+```
+
+Trains 1, 2, 3 and then 5 obstacles for 1500, 1500, 3000 and 3000 episodes, each stage starting from the previous stage's best checkpoint.
+- Only the weights carry over, so each stage starts with a fresh optimizer, an empty replay buffer and epsilon at `resume_epsilon`.
+- Checkpoints tied on the validation score are rescored on a second seed, and the winner becomes the stage's best.
+- `--stages 0:3000,1:1500,2:1500,3:3000,5:3000` without `--init` trains its own stage 0, which an experiment needs whenever its state size differs from the baseline's.
+- Any other argument goes to `train_dqn.py` unchanged.
+- `<output_root>/curriculum.json` records the starting weights and their SHA-256, the stages, the forwarded arguments and what each stage handed on.
 
 ### Batch evaluation
 
@@ -182,6 +198,8 @@ A mismatch usually fails on the input size, but `--k_nearest 1` gives 5 inputs l
 | `camera_emulation.py` | Emulated depth-camera readings for `--distance_mode camera` |
 | `test_camera_emulation.py` | Tests for `camera_emulation.py`, run as a plain script |
 | `train_dqn.py` | Training loop (this standalone entry point) |
+| `curriculum.py` | Chains `train_dqn.py` stages over increasing obstacle counts |
+| `select_best.py` | Keeps each run's best checkpoint on a fixed validation set |
 | `dqn_diagnose_2d.py` | Batch evaluation |
 | `eval_2d.py` | Greedy evaluation on reproducible layouts, first episode per env |
 | `trace_2d.py` | Step-by-step episode trace |

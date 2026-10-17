@@ -29,15 +29,15 @@ class DQNConfig:
     max_yaw_rate: float = 1.57
 
     # ── Training hyperparameters (initial values from the LT-DQN paper's
-    # Table; replay_buffer_size was later enlarged from the paper's 5000) ──
-    replay_buffer_size: int = 50000
+    # Table, some since tuned) ──
+    replay_buffer_size: int = 500000  # 50000 held only the last ~780 vector steps of 64 envs
     batch_size: int = 64
     learning_rate: float = 1e-3
     gamma: float = 0.98
     epsilon_start: float = 1.0
-    epsilon_min: float = 0.05
+    epsilon_min: float = 0.03
     epsilon_decay: float = 0.995
-    target_update_every: int = 10
+    target_update_every: int = 20  # counted in episodes, not gradient steps
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
 

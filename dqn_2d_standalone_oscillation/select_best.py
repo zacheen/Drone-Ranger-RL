@@ -23,13 +23,13 @@ from dqn_2d_env import add_env_args, env_from_args
 VALIDATION_SEED = 1000
 
 
-def first_episode_success(checkpoint, args, cfg, num_episodes):
+def first_episode_success(checkpoint, args, cfg, num_episodes, seed=VALIDATION_SEED):
     env = env_from_args(args, num_episodes, cfg, "cpu")
     q_net = QNetwork(state_dim=env.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
     q_net.load_state_dict(torch.load(checkpoint, map_location="cpu"))
     q_net.eval()
     # Seeded after the network is built, as in eval_2d.py, so layouts depend on the seed and env options only.
-    torch.manual_seed(VALIDATION_SEED)
+    torch.manual_seed(seed)
     obs, _ = env.reset()
     state = obs["dqn_state"]
     open_ = torch.ones(num_episodes, dtype=torch.bool)

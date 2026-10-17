@@ -36,7 +36,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_envs", type=int, default=64)
-parser.add_argument("--num_episodes", type=int, default=1500)
+parser.add_argument("--num_episodes", type=int, default=3000)
 parser.add_argument("--max_steps_per_episode", type=int, default=100)
 parser.add_argument("--resume_from", type=str, default=None, help="path to a .pt checkpoint to resume from")
 parser.add_argument("--resume_optimizer_from", type=str, default=None, help="path to a .pt optimizer state to resume from (paired with --resume_from)")
