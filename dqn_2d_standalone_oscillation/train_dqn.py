@@ -200,7 +200,9 @@ for episode in range(args.num_episodes):
 
             q_pred = q_net(s).gather(1, a.unsqueeze(-1)).squeeze(-1)
             with torch.no_grad():
-                q_next_max = q_target(s_next).max(dim=-1).values
+                # Double DQN: the online net picks the next joint action, the target net scores it.
+                next_a = q_net(s_next).argmax(dim=-1, keepdim=True)
+                q_next_max = q_target(s_next).gather(1, next_a).squeeze(-1)
                 q_target_value = r + cfg.gamma * q_next_max * (1 - d)
             loss = F.mse_loss(q_pred, q_target_value)
 
