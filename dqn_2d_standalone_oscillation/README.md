@@ -42,8 +42,8 @@ automatically if no GPU is available).
 python3 train_dqn.py --num_envs=64 --num_episodes=3000 --run_name=my_run
 ```
 
-The defaults are the `baseline_v2` training setup, meaning a 500,000-transition replay buffer, an exploration floor of 0.03, the target network copied every 20 episodes and 3000 episodes.
-Experiments branch from `baseline_v2` and are trained through the curriculum below rather than with a single call.
+The defaults are the `baseline_v3` training setup, meaning a 500,000-transition replay buffer, an exploration floor of 0.03, the target network copied every 20 episodes and 3000 episodes, with the Double DQN target.
+Experiments branch from `baseline_v3` and are trained through the curriculum below rather than with a single call.
 
 Checkpoints are saved to `checkpoints/<run_name>_ep<N>.pt` and
 `checkpoints/<run_name>_final.pt` (relative to this script's own
