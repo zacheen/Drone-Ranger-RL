@@ -37,7 +37,10 @@ class DQNConfig:
     epsilon_start: float = 1.0
     epsilon_min: float = 0.03
     epsilon_decay: float = 0.995
-    target_update_every: int = 20  # counted in episodes, not gradient steps
+    target_update_every: int = 20  # counted in episodes, not gradient steps; unused while target_tau > 0
+    # Polyak step toward the online net after every gradient step, 0 for the periodic hard copy.
+    # 0.0005 gives a time constant of about 2000 gradient steps, matching the hard copy every 20 episodes of 100 steps.
+    target_tau: float = 0.0005
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
 

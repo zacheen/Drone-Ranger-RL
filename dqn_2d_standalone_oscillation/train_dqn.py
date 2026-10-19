@@ -209,6 +209,10 @@ for episode in range(args.num_episodes):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            if cfg.target_tau > 0:
+                with torch.no_grad():
+                    for p_t, p in zip(q_target.parameters(), q_net.parameters()):
+                        p_t.lerp_(p, cfg.target_tau)
 
             global_train_step += 1
             if global_train_step % 20 == 0:
@@ -223,7 +227,7 @@ for episode in range(args.num_episodes):
 
     epsilon = max(cfg.epsilon_min, epsilon * cfg.epsilon_decay)
 
-    if episode % cfg.target_update_every == 0:
+    if cfg.target_tau == 0 and episode % cfg.target_update_every == 0:
         q_target.load_state_dict(q_net.state_dict())
 
     recent = episode_returns[-50:]
