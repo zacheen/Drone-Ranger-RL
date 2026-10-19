@@ -13,12 +13,16 @@ environment/task config as separate concerns.
 import argparse
 from dataclasses import dataclass, fields
 
+# The forward speeds the actions choose from, as fractions of forward_speed.
+# None is zero, so the drone cannot stop.
+SPEED_FRACTIONS = (0.2, 0.5, 1.0)
+
 
 @dataclass
 class DQNConfig:
     # ── Network architecture ──
     state_dim: int = 5
-    num_actions: int = 6
+    num_actions: int = 9  # len(SPEED_FRACTIONS) speeds times 3 turns
     hidden_dim: int = 128  # raised from 64 -- testing whether network
                             # capacity was the bottleneck (see experiment log)
 

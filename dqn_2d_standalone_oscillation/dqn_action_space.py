@@ -33,15 +33,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dqn_config import DQNConfig
+from dqn_config import DQNConfig, SPEED_FRACTIONS
 
 _cfg = DQNConfig()
 
 NUM_ACTIONS = _cfg.num_actions
 STATE_DIM = _cfg.state_dim
-# Action index = speed * NUM_TURNS + turn, speed in (stop, forward), turn in (none, left, right).
-NUM_SPEEDS, NUM_TURNS = 2, 3
-ACTION_NAMES = ["hover", "turn_left", "turn_right", "forward", "fwd_left", "fwd_right"]
+# Action index = speed * NUM_TURNS + turn, speed in (slow, mid, fast), turn in (none, left, right).
+NUM_SPEEDS, NUM_TURNS = len(SPEED_FRACTIONS), 3
+ACTION_NAMES = [f"{s}{t}" for s in ("slow", "mid", "fast") for t in ("", "_left", "_right")]
 
 
 def _arctanh(y):
@@ -50,24 +50,20 @@ def _arctanh(y):
 
 # vx's squash formula is ((tanh(x)+1)/2)*max_xy_vel (forces non-negative,
 # see _apply_action in the env). Inverting it:
-#   to get vx=forward_speed, need x = arctanh(2*forward_speed/max_xy_vel - 1)
-#   to get vx=0, need x = arctanh(-1), which is undefined (division by
-#   zero) -- approximated with a large negative number so tanh(x) is
-#   close enough to -1 that the squashed vx is negligible (~1e-4 m/s).
-_VX_FORWARD_RAW = _arctanh(2 * _cfg.forward_speed / _cfg.max_xy_vel - 1)
-_VX_ZERO_RAW = -10.0
+#   to get vx=v, need x = arctanh(2*v/max_xy_vel - 1)
+_VX_RAW = [_arctanh(2 * f * _cfg.forward_speed / _cfg.max_xy_vel - 1) for f in SPEED_FRACTIONS]
 _YAW_TURN_RAW = _arctanh(_cfg.turn_rate / _cfg.max_yaw_rate)
 
 
 def discrete_action_to_continuous(action_idx: torch.Tensor, device) -> torch.Tensor:
-    """action_idx: (N,) values 0-5. Returns (N,3) continuous action
+    """action_idx: (N,) values 0 to NUM_ACTIONS-1. Returns (N,3) continuous action
     tensor, ready to pass to env.step(). No dy parameter needed --
     unlike v1, turn direction is a discrete choice the network makes
     (left vs right), not something computed dynamically from dy's sign."""
     n = action_idx.shape[0]
     out = torch.zeros(n, 3, device=device)
     speed, turn = action_idx // NUM_TURNS, action_idx % NUM_TURNS
-    out[:, 0] = torch.where(speed == 1, _VX_FORWARD_RAW, _VX_ZERO_RAW)
+    out[:, 0] = torch.tensor(_VX_RAW, device=device)[speed]
     out[turn == 1, 2] = _YAW_TURN_RAW
     out[turn == 2, 2] = -_YAW_TURN_RAW
     return out
