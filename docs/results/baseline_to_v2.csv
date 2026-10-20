@@ -1,0 +1,177 @@
+﻿arm,description,obstacles,evaluation,run,final (%),best (%),best checkpoint,best + hystlr (%),fail oscillation (%),fail spin in place (%),fail near-target timeout (%),fail far timeout (%),fail zigzag (%),fail crash (%),fail out of bounds (%)
+baseline,"s1-base itself, every other arm is compared with it",3,"seed 1, 2,000 layouts",1,43.75,50.9,ep1200,55.25,45.25,0.0,0.0,3.6,0.0,0.25,0.0
+baseline,"s1-base itself, every other arm is compared with it",3,"seed 1, 2,000 layouts",2,59.25,70.8,ep1100,71.15,9.5,17.95,0.55,0.95,0.05,0.2,0.0
+baseline,"s1-base itself, every other arm is compared with it",3,"seed 1, 2,000 layouts",3,20.4,58.35,ep1200,58.7,13.4,26.4,0.0,0.05,0.0,1.8,0.0
+baseline,"s1-base itself, every other arm is compared with it",3,"seed 1, 2,000 layouts",mean,41.13,60.02,,61.7,22.72,14.78,0.18,1.53,0.02,0.75,0.0
+R2,progress reward weight x3 (K 0.05 to 0.15),3,"seed 1, 2,000 layouts",1,60.6,60.6,final,61.4,38.95,0.0,0.05,0.0,0.0,0.4,0.0
+R2,progress reward weight x3 (K 0.05 to 0.15),3,"seed 1, 2,000 layouts",2,66.3,73.7,ep1400,75.35,26.05,0.0,0.0,0.0,0.0,0.25,0.0
+R2,progress reward weight x3 (K 0.05 to 0.15),3,"seed 1, 2,000 layouts",3,51.0,51.0,final,52.05,48.8,0.0,0.0,0.0,0.0,0.2,0.0
+R2,progress reward weight x3 (K 0.05 to 0.15),3,"seed 1, 2,000 layouts",mean,59.3,61.77,,62.93,37.93,0.0,0.02,0.0,0.0,0.28,0.0
+V9,"two heads, so the drone can move forward and turn at once (6 actions)",3,"seed 1, 2,000 layouts",1,23.75,51.7,ep1300,53.55,10.25,0.0,3.65,34.35,0.0,0.05,0.0
+V9,"two heads, so the drone can move forward and turn at once (6 actions)",3,"seed 1, 2,000 layouts",2,73.7,85.65,ep1000,86.25,4.25,6.45,0.0,1.95,0.0,1.7,0.0
+V9,"two heads, so the drone can move forward and turn at once (6 actions)",3,"seed 1, 2,000 layouts",3,30.95,72.15,ep1200,74.2,14.35,0.0,2.15,9.3,0.3,1.75,0.0
+V9,"two heads, so the drone can move forward and turn at once (6 actions)",3,"seed 1, 2,000 layouts",mean,42.8,69.83,,71.33,9.62,2.15,1.93,15.2,0.1,1.17,0.0
+E1,learning rate decays linearly to 1/10 after ep500,3,"seed 1, 2,000 layouts",1,46.6,46.6,final,47.85,52.6,0.0,0.0,0.0,0.0,0.8,0.0
+E1,learning rate decays linearly to 1/10 after ep500,3,"seed 1, 2,000 layouts",2,70.6,70.6,final,73.8,28.9,0.0,0.15,0.15,0.0,0.2,0.0
+E1,learning rate decays linearly to 1/10 after ep500,3,"seed 1, 2,000 layouts",3,39.35,63.65,ep1400,65.2,27.65,5.65,0.05,0.1,0.0,2.9,0.0
+E1,learning rate decays linearly to 1/10 after ep500,3,"seed 1, 2,000 layouts",mean,52.18,60.28,,62.28,36.38,1.88,0.07,0.08,0.0,1.3,0.0
+V7,"Advantage Learning, widening the Q-value gap of the best action",3,"seed 1, 2,000 layouts",1,27.45,31.0,ep100,31.05,4.9,41.65,13.35,9.1,0.0,0.0,0.0
+V7,"Advantage Learning, widening the Q-value gap of the best action",3,"seed 1, 2,000 layouts",2,40.35,40.35,final,41.7,58.1,0.65,0.35,0.3,0.1,0.15,0.0
+V7,"Advantage Learning, widening the Q-value gap of the best action",3,"seed 1, 2,000 layouts",3,11.4,32.95,ep1100,33.45,24.45,33.85,8.05,0.55,0.15,0.0,0.0
+V7,"Advantage Learning, widening the Q-value gap of the best action",3,"seed 1, 2,000 layouts",mean,26.4,34.77,,35.4,29.15,25.38,7.25,3.32,0.08,0.05,0.0
+E2,"gamma 0.98 to 0.995, a longer horizon",3,"seed 1, 2,000 layouts",1,58.35,58.35,final,68.55,35.05,0.6,0.0,5.35,0.0,0.65,0.0
+E2,"gamma 0.98 to 0.995, a longer horizon",3,"seed 1, 2,000 layouts",2,51.2,61.2,ep1400,65.35,36.8,0.0,0.1,0.7,0.1,1.1,0.0
+E2,"gamma 0.98 to 0.995, a longer horizon",3,"seed 1, 2,000 layouts",3,44.3,69.8,ep1400,69.9,28.95,0.0,0.05,0.05,0.0,1.15,0.0
+E2,"gamma 0.98 to 0.995, a longer horizon",3,"seed 1, 2,000 layouts",mean,51.28,63.12,,67.93,33.6,0.2,0.05,2.03,0.03,0.97,0.0
+buffer 500k,replay buffer 50k to 500k,3,"seed 1, 2,000 layouts",1,67.5,67.5,final,70.8,27.0,2.05,2.55,0.0,0.0,0.9,0.0
+buffer 500k,replay buffer 50k to 500k,3,"seed 1, 2,000 layouts",2,25.8,35.05,ep1400,41.7,62.25,0.0,0.0,2.7,0.0,0.0,0.0
+buffer 500k,replay buffer 50k to 500k,3,"seed 1, 2,000 layouts",3,65.85,65.85,final,68.75,21.25,10.9,1.25,0.45,0.1,0.2,0.0
+buffer 500k,replay buffer 50k to 500k,3,"seed 1, 2,000 layouts",mean,53.05,56.13,,60.42,36.83,4.32,1.27,1.05,0.03,0.37,0.0
+"buffer 500k, 3000 ep","buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",1,50.35,67.2,ep2700,75.25,32.6,0.0,0.0,0.05,0.05,0.1,0.0
+"buffer 500k, 3000 ep","buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",2,65.7,69.85,ep2400,79.1,29.2,0.0,0.0,0.0,0.0,0.95,0.0
+"buffer 500k, 3000 ep","buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",3,81.65,81.65,final,87.4,13.65,2.2,0.1,0.1,0.05,2.25,0.0
+"buffer 500k, 3000 ep","buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",mean,65.9,72.9,,80.58,25.15,0.73,0.03,0.05,0.03,1.1,0.0
+"V2, 500k","state gains a one-hot of the previous action, buffer 500k",3,"seed 1, 2,000 layouts",1,35.85,60.85,ep1300,66.0,31.8,0.15,0.65,2.35,1.25,2.95,0.0
+"V2, 500k","state gains a one-hot of the previous action, buffer 500k",3,"seed 1, 2,000 layouts",2,44.5,79.15,ep900,80.1,9.3,9.9,0.3,0.3,0.05,1.0,0.0
+"V2, 500k","state gains a one-hot of the previous action, buffer 500k",3,"seed 1, 2,000 layouts",3,26.1,48.55,ep1300,52.1,41.0,0.05,0.2,7.95,1.5,0.75,0.0
+"V2, 500k","state gains a one-hot of the previous action, buffer 500k",3,"seed 1, 2,000 layouts",mean,35.48,62.85,,66.07,27.37,3.37,0.38,3.53,0.93,1.57,0.0
+"V9 + R2, 500k","two heads plus progress weight x3, buffer 500k",3,"seed 1, 2,000 layouts",1,62.25,72.4,ep900,74.65,2.1,0.0,0.35,16.8,0.7,7.65,0.0
+"V9 + R2, 500k","two heads plus progress weight x3, buffer 500k",3,"seed 1, 2,000 layouts",2,75.85,75.85,final,75.95,22.7,0.0,0.0,0.95,0.1,0.4,0.0
+"V9 + R2, 500k","two heads plus progress weight x3, buffer 500k",3,"seed 1, 2,000 layouts",3,82.5,86.5,ep1400,89.6,8.45,0.1,0.0,3.7,0.05,1.2,0.0
+"V9 + R2, 500k","two heads plus progress weight x3, buffer 500k",3,"seed 1, 2,000 layouts",mean,73.53,78.25,,80.07,11.08,0.03,0.12,7.15,0.28,3.08,0.0
+"V9 + R2, 500k, 3000 ep","V9 + R2, buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",1,75.1,83.55,ep2900,86.75,8.85,0.0,0.05,7.3,0.0,0.25,0.0
+"V9 + R2, 500k, 3000 ep","V9 + R2, buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",2,65.8,77.55,ep2500,82.95,11.15,0.15,0.55,8.25,0.0,2.35,0.0
+"V9 + R2, 500k, 3000 ep","V9 + R2, buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",3,82.1,82.1,final,85.2,8.4,1.4,0.0,6.2,0.0,1.9,0.0
+"V9 + R2, 500k, 3000 ep","V9 + R2, buffer 500k, training extended to 3000 ep",3,"seed 1, 2,000 layouts",mean,74.33,81.07,,84.97,9.47,0.52,0.2,7.25,0.0,1.5,0.0
+"V9 + R2 + E1, 500k","V9 + R2 plus learning-rate decay, buffer 500k",3,"seed 1, 2,000 layouts",1,77.5,77.5,final,78.15,7.65,0.0,0.15,13.05,0.05,1.6,0.0
+"V9 + R2 + E1, 500k","V9 + R2 plus learning-rate decay, buffer 500k",3,"seed 1, 2,000 layouts",2,47.6,65.6,ep800,65.75,4.3,0.0,6.9,22.25,0.0,0.95,0.0
+"V9 + R2 + E1, 500k","V9 + R2 plus learning-rate decay, buffer 500k",3,"seed 1, 2,000 layouts",3,77.7,86.2,ep1300,86.35,1.5,0.3,0.3,9.25,0.0,2.45,0.0
+"V9 + R2 + E1, 500k","V9 + R2 plus learning-rate decay, buffer 500k",3,"seed 1, 2,000 layouts",mean,67.6,76.43,,76.75,4.48,0.1,2.45,14.85,0.02,1.67,0.0
+"V9 + R2 + E2, 500k","V9 + R2 plus gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",1,59.4,59.4,final,63.4,36.3,0.0,0.05,2.75,0.0,1.5,0.0
+"V9 + R2 + E2, 500k","V9 + R2 plus gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",2,17.45,81.75,ep1200,85.05,8.1,0.0,0.55,9.05,0.1,0.45,0.0
+"V9 + R2 + E2, 500k","V9 + R2 plus gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",3,72.2,73.55,ep1200,75.0,15.95,0.0,5.25,4.65,0.1,0.5,0.0
+"V9 + R2 + E2, 500k","V9 + R2 plus gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",mean,49.68,71.57,,74.48,20.12,0.0,1.95,5.48,0.07,0.82,0.0
+"V9 + R2 + E1 + E2, 500k","V9 + R2 plus learning-rate decay and gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",1,76.8,76.8,final,77.35,6.4,0.0,0.9,15.8,0.05,0.05,0.0
+"V9 + R2 + E1 + E2, 500k","V9 + R2 plus learning-rate decay and gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",2,69.9,70.6,ep700,70.95,11.8,0.15,0.8,15.9,0.1,0.65,0.0
+"V9 + R2 + E1 + E2, 500k","V9 + R2 plus learning-rate decay and gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",3,74.95,74.95,final,76.5,13.05,0.0,0.7,10.85,0.0,0.45,0.0
+"V9 + R2 + E1 + E2, 500k","V9 + R2 plus learning-rate decay and gamma 0.995, buffer 500k",3,"seed 1, 2,000 layouts",mean,73.88,74.12,,74.93,10.42,0.05,0.8,14.18,0.05,0.38,0.0
+"V9 + R2 + lr 3e-4, 500k, 3000 ep","V9 + R2, learning rate 3e-4 from the start, buffer 500k",3,"seed 1, 2,000 layouts",1,80.15,80.15,final,83.35,9.05,0.0,1.1,8.4,0.0,1.3,0.0
+"V9 + R2 + lr 3e-4, 500k, 3000 ep","V9 + R2, learning rate 3e-4 from the start, buffer 500k",3,"seed 1, 2,000 layouts",2,72.35,79.8,ep2700,82.1,10.55,0.0,2.45,6.9,0.0,0.3,0.0
+"V9 + R2 + lr 3e-4, 500k, 3000 ep","V9 + R2, learning rate 3e-4 from the start, buffer 500k",3,"seed 1, 2,000 layouts",mean,76.25,79.97,,82.72,9.8,0.0,1.78,7.65,0.0,0.8,0.0
+"V9 + R2 + ε_min 0.01, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.01, buffer 500k",3,"seed 1, 2,000 layouts",1,77.95,85.1,ep2800,87.25,11.0,0.0,0.0,3.5,0.0,0.4,0.0
+"V9 + R2 + ε_min 0.01, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.01, buffer 500k",3,"seed 1, 2,000 layouts",2,74.2,78.95,ep1200,79.05,1.05,0.0,1.1,17.15,0.0,1.75,0.0
+"V9 + R2 + ε_min 0.01, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.01, buffer 500k",3,"seed 1, 2,000 layouts",3,89.25,89.25,final,90.65,8.6,1.55,0.0,0.4,0.0,0.2,0.0
+"V9 + R2 + ε_min 0.01, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.01, buffer 500k",3,"seed 1, 2,000 layouts",mean,80.47,84.43,,85.65,6.88,0.52,0.37,7.02,0.0,0.78,0.0
+"V9 + R2 + ε_min 0.03, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.03, buffer 500k",3,"seed 1, 2,000 layouts",1,77.3,88.45,ep2900,89.4,4.35,0.8,0.1,3.2,0.0,3.1,0.0
+"V9 + R2 + ε_min 0.03, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.03, buffer 500k",3,"seed 1, 2,000 layouts",2,42.3,91.15,ep2000,91.5,4.5,0.45,0.1,1.3,0.05,2.45,0.0
+"V9 + R2 + ε_min 0.03, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.03, buffer 500k",3,"seed 1, 2,000 layouts",3,76.95,81.35,ep1200,84.55,10.15,0.0,1.45,5.35,0.0,1.7,0.0
+"V9 + R2 + ε_min 0.03, 500k, 3000 ep","V9 + R2, exploration floor 0.05 to 0.03, buffer 500k",3,"seed 1, 2,000 layouts",mean,65.52,86.98,,88.48,6.33,0.42,0.55,3.28,0.02,2.42,0.0
+"V9 + R2 + 2 updates per step, 500k, 3000 ep","V9 + R2, 2 gradient updates per env step, buffer 500k",3,"seed 1, 2,000 layouts",1,37.6,93.65,ep1500,92.35,3.75,0.1,0.7,0.25,0.0,1.55,0.0
+"V9 + R2 + 2 updates per step, 500k, 3000 ep","V9 + R2, 2 gradient updates per env step, buffer 500k",3,"seed 1, 2,000 layouts",2,44.75,86.95,ep1700,87.35,7.4,0.5,0.05,4.95,0.0,0.15,0.0
+"V9 + R2 + 2 updates per step, 500k, 3000 ep","V9 + R2, 2 gradient updates per env step, buffer 500k",3,"seed 1, 2,000 layouts",mean,41.17,90.3,,89.85,5.58,0.3,0.38,2.6,0.0,0.85,0.0
+"V9 + R2 + target every 20 ep, 500k, 3000 ep","V9 + R2, target net copied every 20 episodes, buffer 500k",3,"seed 1, 2,000 layouts",1,83.8,83.8,final,84.5,13.6,0.0,0.0,0.3,0.0,2.3,0.0
+"V9 + R2 + target every 20 ep, 500k, 3000 ep","V9 + R2, target net copied every 20 episodes, buffer 500k",3,"seed 1, 2,000 layouts",2,77.9,80.55,ep2200,81.25,4.65,0.0,0.0,10.6,0.05,4.15,0.0
+"V9 + R2 + target every 20 ep, 500k, 3000 ep","V9 + R2, target net copied every 20 episodes, buffer 500k",3,"seed 1, 2,000 layouts",mean,80.85,82.17,,82.88,9.12,0.0,0.0,5.45,0.03,3.23,0.0
+"V9 + R2 + hidden 256, 500k, 3000 ep","V9 + R2, hidden layer 128 to 256, buffer 500k",3,"seed 1, 2,000 layouts",1,44.55,73.9,ep800,75.1,12.7,8.1,0.05,3.65,0.8,0.8,0.0
+"V9 + R2 + hidden 256, 500k, 3000 ep","V9 + R2, hidden layer 128 to 256, buffer 500k",3,"seed 1, 2,000 layouts",2,89.2,89.8,ep2700,90.4,2.35,0.5,0.0,1.55,0.0,5.8,0.0
+"V9 + R2 + hidden 256, 500k, 3000 ep","V9 + R2, hidden layer 128 to 256, buffer 500k",3,"seed 1, 2,000 layouts",mean,66.88,81.85,,82.75,7.52,4.3,0.03,2.6,0.4,3.3,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep",final setup plus 2 updates per step,3,"seed 1, 2,000 layouts",1,70.45,89.85,ep1700,90.7,7.0,0.05,0.95,2.15,0.0,0.0,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep",final setup plus 2 updates per step,3,"seed 1, 2,000 layouts",2,86.35,86.35,final,87.35,8.45,0.45,0.0,3.25,0.05,1.45,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep",final setup plus 2 updates per step,3,"seed 1, 2,000 layouts",3,69.8,83.0,ep1300,83.65,6.2,0.35,0.1,5.2,0.0,5.15,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep",final setup plus 2 updates per step,3,"seed 1, 2,000 layouts",mean,75.53,86.4,,87.23,7.22,0.28,0.35,3.53,0.02,2.2,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep (seed 777)",final setup plus 2 updates per step,3,"seed 777, 10,000 layouts",1,69.66,89.3,ep1700,90.31,7.19,0.06,1.13,2.32,0.0,0.0,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep (seed 777)",final setup plus 2 updates per step,3,"seed 777, 10,000 layouts",2,85.74,85.74,final,86.69,8.23,0.59,0.1,3.53,0.01,1.8,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep (seed 777)",final setup plus 2 updates per step,3,"seed 777, 10,000 layouts",3,71.43,84.05,ep1300,84.85,5.98,0.36,0.02,4.42,0.0,5.17,0.0
+"V9 + R2 + ε_min 0.03 + 2 updates per step, 500k, 3000 ep (seed 777)",final setup plus 2 updates per step,3,"seed 777, 10,000 layouts",mean,75.61,86.36,,87.28,7.13,0.34,0.42,3.42,0.0,2.32,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep",final setup plus the target copied every 20 episodes,3,"seed 1, 2,000 layouts",1,75.6,87.25,ep2400,87.35,0.55,3.5,0.0,2.15,0.0,6.55,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep",final setup plus the target copied every 20 episodes,3,"seed 1, 2,000 layouts",2,63.65,87.3,ep2500,92.5,9.05,0.4,0.0,2.6,0.0,0.65,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep",final setup plus the target copied every 20 episodes,3,"seed 1, 2,000 layouts",3,82.95,87.2,ep1800,87.25,3.65,1.95,0.05,6.75,0.05,0.35,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep",final setup plus the target copied every 20 episodes,3,"seed 1, 2,000 layouts",mean,74.07,87.25,,89.03,4.42,1.95,0.02,3.83,0.02,2.52,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep (seed 777)",final setup plus the target copied every 20 episodes,3,"seed 777, 10,000 layouts",1,74.57,87.93,ep2400,88.03,0.71,3.07,0.0,1.84,0.0,6.45,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep (seed 777)",final setup plus the target copied every 20 episodes,3,"seed 777, 10,000 layouts",2,63.53,87.71,ep2500,91.95,8.46,0.92,0.0,2.71,0.0,0.2,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep (seed 777)",final setup plus the target copied every 20 episodes,3,"seed 777, 10,000 layouts",3,83.01,87.09,ep1800,87.34,3.33,2.17,0.01,6.52,0.03,0.85,0.0
+"V9 + R2 + ε_min 0.03 + target every 20 ep, 500k, 3000 ep (seed 777)",final setup plus the target copied every 20 episodes,3,"seed 777, 10,000 layouts",mean,73.7,87.58,,89.11,4.17,2.05,0.0,3.69,0.01,2.5,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",1,93.03,100.0,ep1500 (tie-break),100.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",2,47.35,99.56,ep1300,99.98,0.42,0.0,0.02,0.0,0.0,0.0,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",3,78.48,100.0,ep900 (tie-break),99.92,0.12,0.0,0.0,0.0,0.0,0.0,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",4,96.65,99.99,ep500,100.0,0.01,0.0,0.0,0.0,0.0,0.0,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",5,12.61,99.95,ep1100,99.95,0.05,0.0,0.0,0.0,0.0,0.0,0.0
+FINAL no obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",0,"seed 777, 10,000 layouts",mean,65.62,99.9,,99.97,0.12,0.0,0.0,0.0,0.0,0.0,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",1,33.81,89.4,ep2200,91.2,5.44,2.08,0.0,0.7,0.04,2.34,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",2,75.66,77.04,ep2700,77.63,13.81,0.0,0.69,7.73,0.0,0.73,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",3,71.79,82.85,ep1100,84.19,16.87,0.0,0.0,0.0,0.0,0.28,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",4,39.68,79.43,ep2000,79.72,17.98,0.14,0.01,0.17,0.01,2.26,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",5,74.38,83.98,ep2600,84.94,10.89,0.01,0.0,4.33,0.0,0.79,0.0
+FINAL 3 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",3,"seed 777, 10,000 layouts",mean,59.06,82.54,,83.54,13.0,0.45,0.14,2.59,0.01,1.28,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",1,73.78,76.69,ep2700,78.35,12.84,0.02,0.01,9.86,0.0,0.58,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",2,57.02,82.47,ep2800,83.86,9.14,0.19,0.0,5.84,0.03,2.33,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",3,62.63,74.29,ep1100,74.4,16.9,0.0,0.12,4.52,0.01,4.16,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",4,53.27,77.64,ep2900,78.89,19.29,0.0,0.21,0.11,0.0,2.75,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",5,43.93,71.71,ep1400,73.12,17.35,0.0,0.34,6.82,0.02,3.76,0.0
+FINAL 5 obstacles,"final setup V9 + R2 + 500k + ε_min 0.03, 3000 ep, trained from scratch",5,"seed 777, 10,000 layouts",mean,58.13,76.56,,77.72,15.1,0.04,0.14,5.43,0.01,2.72,0.0
+"S + tgt20 + coords, 3000 ep","final setup plus the target every 20 ep, state replaced by obstacle coordinates",3,"seed 777, 10,000 layouts",1,60.5,63.98,ep2900,65.59,13.38,1.52,0.02,15.65,0.01,5.44,0.0
+"S + tgt20 + coords, 3000 ep","final setup plus the target every 20 ep, state replaced by obstacle coordinates",3,"seed 777, 10,000 layouts",mean,60.5,63.98,,65.59,13.38,1.52,0.02,15.65,0.01,5.44,0.0
+"S + tgt20 + coords, 6000 ep","as above, training extended to 6000 ep",3,"seed 777, 10,000 layouts",1,80.1,80.1,final,81.31,11.73,0.0,0.0,7.85,0.02,0.3,0.0
+"S + tgt20 + coords, 6000 ep","as above, training extended to 6000 ep",3,"seed 777, 10,000 layouts",mean,80.1,80.1,,81.31,11.73,0.0,0.0,7.85,0.02,0.3,0.0
+"S + tgt20 + V2 + V3, 3000 ep","final setup plus the target every 20 ep, previous action in the state and a left-right reversal penalty",3,"seed 777, 10,000 layouts",1,74.7,81.06,ep2900,81.54,2.87,0.01,0.16,13.93,0.65,1.32,0.0
+"S + tgt20 + V2 + V3, 3000 ep","final setup plus the target every 20 ep, previous action in the state and a left-right reversal penalty",3,"seed 777, 10,000 layouts",mean,74.7,81.06,,81.54,2.87,0.01,0.16,13.93,0.65,1.32,0.0
+"curriculum V9 + R2, 500k, 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",0,"seed 777, 10,000 layouts",1,72.12,99.87,ep2400,99.87,0.01,0.0,0.11,0.01,0.0,0.0,0.0
+"curriculum V9 + R2, 500k, 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",0,"seed 777, 10,000 layouts",mean,72.12,99.87,,99.87,0.01,0.0,0.11,0.01,0.0,0.0,0.0
+"curriculum V9 + R2, 500k, 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",3,"seed 777, 10,000 layouts",1,48.71,90.24,ep2300,92.46,6.18,0.08,0.02,2.9,0.05,0.53,0.0
+"curriculum V9 + R2, 500k, 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",3,"seed 777, 10,000 layouts",mean,48.71,90.24,,92.46,6.18,0.08,0.02,2.9,0.05,0.53,0.0
+"curriculum V9 + R2, 500k, 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",5,"seed 777, 10,000 layouts",1,67.68,82.26,ep2200,82.54,2.67,0.4,0.15,14.11,0.0,0.41,0.0
+"curriculum V9 + R2, 500k, 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, ε_min 0.05, target every 10 ep",5,"seed 777, 10,000 layouts",mean,67.68,82.26,,82.54,2.67,0.4,0.15,14.11,0.0,0.41,0.0
+"curriculum S + tgt20, 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",0,"seed 777, 10,000 layouts",1,73.32,99.79,ep800,99.99,0.21,0.0,0.0,0.0,0.0,0.0,0.0
+"curriculum S + tgt20, 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",0,"seed 777, 10,000 layouts",mean,73.32,99.79,,99.99,0.21,0.0,0.0,0.0,0.0,0.0,0.0
+"curriculum S + tgt20, 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",3,"seed 777, 10,000 layouts",1,87.12,90.71,ep2500,90.94,1.53,3.98,0.28,0.51,0.01,2.98,0.0
+"curriculum S + tgt20, 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",3,"seed 777, 10,000 layouts",mean,87.12,90.71,,90.94,1.53,3.98,0.28,0.51,0.01,2.98,0.0
+"curriculum S + tgt20, 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",5,"seed 777, 10,000 layouts",1,66.85,93.03,ep1500,93.43,3.69,1.83,0.15,1.2,0.03,0.07,0.0
+"curriculum S + tgt20, 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, no tie-break",5,"seed 777, 10,000 layouts",mean,66.85,93.03,,93.43,3.69,1.83,0.15,1.2,0.03,0.07,0.0
+"curriculum S + tgt20 (control), 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",0,"seed 777, 10,000 layouts",1,92.44,100.0,ep800 (tie-break),100.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+"curriculum S + tgt20 (control), 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",0,"seed 777, 10,000 layouts",2,97.42,99.94,ep2200,99.95,0.01,0.0,0.0,0.05,0.0,0.0,0.0
+"curriculum S + tgt20 (control), 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",0,"seed 777, 10,000 layouts",3,99.12,99.59,ep2700 (tie-break),100.0,0.42,0.0,0.0,0.0,0.0,0.0,0.0
+"curriculum S + tgt20 (control), 0 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",0,"seed 777, 10,000 layouts",mean,96.33,99.84,,99.98,0.14,0.0,0.0,0.02,0.0,0.0,0.0
+"curriculum S + tgt20 (control), 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",3,"seed 777, 10,000 layouts",1,69.9,86.48,ep2700,87.85,3.58,3.94,0.34,5.19,0.03,0.44,0.0
+"curriculum S + tgt20 (control), 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",3,"seed 777, 10,000 layouts",2,83.3,83.3,final,82.91,1.33,0.0,0.03,13.7,0.0,1.64,0.0
+"curriculum S + tgt20 (control), 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",3,"seed 777, 10,000 layouts",3,78.59,92.75,ep2300,94.07,5.3,0.43,0.07,0.43,0.01,1.01,0.0
+"curriculum S + tgt20 (control), 3 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",3,"seed 777, 10,000 layouts",mean,77.26,87.51,,88.28,3.4,1.46,0.15,6.44,0.01,1.03,0.0
+"curriculum S + tgt20 (control), 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",5,"seed 777, 10,000 layouts",1,71.49,93.25,ep2100,93.76,3.26,1.59,0.01,1.76,0.01,0.12,0.0
+"curriculum S + tgt20 (control), 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",5,"seed 777, 10,000 layouts",2,71.81,89.59,ep700,91.17,6.72,2.53,0.02,0.58,0.11,0.45,0.0
+"curriculum S + tgt20 (control), 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",5,"seed 777, 10,000 layouts",3,75.38,89.07,ep1100,90.63,8.3,0.24,0.02,0.22,0.0,2.15,0.0
+"curriculum S + tgt20 (control), 5 obstacles","0 → 3 → 5 obstacles, 3000 ep per stage, final setup plus the target every 20 ep, ties broken on seed 2000",5,"seed 777, 10,000 layouts",mean,72.89,90.64,,91.85,6.09,1.45,0.02,0.85,0.04,0.91,0.0
+"curriculum S + tgt20 + 2 updates per step, 0 obstacles",the control plus 2 gradient updates per env step,0,"seed 777, 10,000 layouts",1,99.9,99.9,final,99.9,0.0,0.0,0.02,0.08,0.0,0.0,0.0
+"curriculum S + tgt20 + 2 updates per step, 0 obstacles",the control plus 2 gradient updates per env step,0,"seed 777, 10,000 layouts",2,64.89,99.41,ep1500,99.71,0.0,0.07,0.37,0.15,0.0,0.0,0.0
+"curriculum S + tgt20 + 2 updates per step, 0 obstacles",the control plus 2 gradient updates per env step,0,"seed 777, 10,000 layouts",3,99.23,100.0,ep900 (tie-break),100.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+"curriculum S + tgt20 + 2 updates per step, 0 obstacles",the control plus 2 gradient updates per env step,0,"seed 777, 10,000 layouts",mean,88.01,99.77,,99.87,0.0,0.02,0.13,0.08,0.0,0.0,0.0
+"curriculum S + tgt20 + 2 updates per step, 3 obstacles",the control plus 2 gradient updates per env step,3,"seed 777, 10,000 layouts",1,74.56,78.28,ep2100,78.75,11.09,0.31,0.08,6.18,0.3,3.76,0.0
+"curriculum S + tgt20 + 2 updates per step, 3 obstacles",the control plus 2 gradient updates per env step,3,"seed 777, 10,000 layouts",2,85.83,94.99,ep2300,95.2,1.84,0.75,0.0,1.42,0.03,0.97,0.0
+"curriculum S + tgt20 + 2 updates per step, 3 obstacles",the control plus 2 gradient updates per env step,3,"seed 777, 10,000 layouts",3,31.22,75.04,ep1700,80.01,23.42,0.01,0.02,0.27,0.02,1.22,0.0
+"curriculum S + tgt20 + 2 updates per step, 3 obstacles",the control plus 2 gradient updates per env step,3,"seed 777, 10,000 layouts",mean,63.87,82.77,,84.65,12.12,0.36,0.03,2.62,0.12,1.98,0.0
+"curriculum S + tgt20 + 2 updates per step, 5 obstacles",the control plus 2 gradient updates per env step,5,"seed 777, 10,000 layouts",1,74.71,84.89,ep1100,85.44,7.72,0.2,0.03,6.88,0.0,0.28,0.0
+"curriculum S + tgt20 + 2 updates per step, 5 obstacles",the control plus 2 gradient updates per env step,5,"seed 777, 10,000 layouts",2,72.59,90.69,ep1100,91.43,5.82,0.49,0.12,1.14,0.0,1.74,0.0
+"curriculum S + tgt20 + 2 updates per step, 5 obstacles",the control plus 2 gradient updates per env step,5,"seed 777, 10,000 layouts",3,73.43,86.69,ep2500,87.25,7.33,0.68,0.56,3.63,0.07,1.04,0.0
+"curriculum S + tgt20 + 2 updates per step, 5 obstacles",the control plus 2 gradient updates per env step,5,"seed 777, 10,000 layouts",mean,73.58,87.42,,88.04,6.96,0.46,0.24,3.88,0.02,1.02,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",1,78.8,87.68,ep1300,93.14,12.31,0.0,0.0,0.01,0.0,0.0,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",2,96.0,96.95,ep1400,97.19,2.51,0.1,0.0,0.2,0.0,0.24,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",3,55.78,89.65,ep1100,89.99,6.37,0.19,0.0,2.5,0.0,1.29,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",4,40.78,98.88,ep1000,99.12,0.59,0.0,0.17,0.06,0.0,0.3,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",5,85.6,91.84,ep800,92.77,6.46,0.36,0.0,0.01,0.01,1.32,0.0
+"baseline_v2, 1 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",1,"seed 777, 10,000 layouts",mean,71.39,93.0,,94.44,5.65,0.13,0.03,0.56,0.0,0.63,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",1,81.26,84.29,ep1000,86.56,13.15,0.0,1.29,1.2,0.0,0.07,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",2,56.87,90.9,ep1100,91.94,6.61,0.59,0.18,0.06,0.0,1.66,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",3,68.31,91.06,ep1200,91.28,1.3,0.11,0.12,6.13,0.02,1.26,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",4,54.41,90.72,ep800,92.24,2.77,0.75,0.0,3.82,0.01,1.93,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",5,88.44,90.17,ep1400,91.24,5.57,0.3,0.31,3.14,0.0,0.51,0.0
+"baseline_v2, 2 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",2,"seed 777, 10,000 layouts",mean,69.86,89.43,,90.65,5.88,0.35,0.38,2.87,0.01,1.09,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",1,82.21,86.96,ep2000,87.82,7.07,0.11,0.61,4.06,0.0,1.19,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",2,83.69,92.93,ep2700,93.88,5.32,0.44,0.06,0.78,0.0,0.47,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",3,74.49,87.34,ep1100,89.07,10.25,0.07,0.15,0.89,0.01,1.29,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",4,82.11,95.5,ep1200,95.66,1.41,0.78,0.13,1.28,0.03,0.87,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",5,84.65,92.18,ep1900,91.76,0.63,1.11,0.13,3.69,0.0,2.26,0.0
+"baseline_v2, 3 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",3,"seed 777, 10,000 layouts",mean,81.43,90.98,,91.64,4.94,0.5,0.22,2.14,0.01,1.22,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",1,70.03,86.77,ep2600,87.45,3.68,0.2,0.14,7.79,0.04,1.38,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",2,45.04,85.78,ep200,86.07,2.54,0.05,0.18,9.65,0.0,1.8,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",3,79.59,90.68,ep2100,91.36,4.93,0.45,0.13,0.26,0.0,3.55,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",4,79.07,91.83,ep500,92.7,5.15,1.54,0.0,0.39,0.01,1.08,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",5,47.0,92.21,ep700,92.82,2.58,1.34,0.0,0.66,0.02,3.19,0.0
+"baseline_v2, 5 obstacles","baseline_v2.0, from the fixed obstacle-free start, 1 → 2 → 3 → 5 obstacles, 1500, 1500, 3000 and 3000 ep",5,"seed 777, 10,000 layouts",mean,64.15,89.45,,90.08,3.78,0.72,0.09,3.75,0.01,2.2,0.0
