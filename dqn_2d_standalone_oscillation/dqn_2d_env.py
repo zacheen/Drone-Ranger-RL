@@ -10,14 +10,15 @@ are integrated directly from the same discrete action -> (vx, yaw_rate)
 mapping used by the real environment. The control step is 0.1 s here, five
 times Isaac Lab's 0.02 s (sim.dt=1/100 * decimation=2).
 
-State layout is identical to the real environment:
-    state = [d_front, d_left, d_right, dx, dy]
-With distance_mode="ground_truth" (the default), d_front/d_left/d_right are
-exact distances to the nearest obstacle surface in each direction
-(obstacle_geometry.py). With distance_mode="camera" they are what the Isaac
-env's three depth cameras would report (camera_emulation.py). With
-num_obstacles=0 (Stage 0) both modes read 10.0 (max sensing range) in all
-three, what the real environment's cameras report when nothing is in view.
+With distance_mode="ground_truth" (the default) the front sector is split in two halves:
+    state = [d_front_left, d_front_right, d_left, d_right, dx, dy]
+each an exact distance to the nearest obstacle surface in that sector
+(obstacle_geometry.py), so the state says on which side of the heading a
+front obstacle lies. With distance_mode="camera" the state keeps the real
+environment's layout, state = [d_front, d_left, d_right, dx, dy], with what
+the Isaac env's three depth cameras would report (camera_emulation.py). With
+num_obstacles=0 (Stage 0) both modes read 10.0 (max sensing range) in every
+reading, what the real environment's cameras report when nothing is in view.
 
 distance_mode="coords" is a diagnostic upper bound with no Isaac
 counterpart. It replaces the three readings with k_nearest slots
@@ -64,6 +65,10 @@ START_KEEPOUT = OBSTACLE_RADIUS + DRONE_RADIUS + OBSTACLE_CLEARANCE  # min cente
 TARGET_KEEPOUT = OBSTACLE_RADIUS + REACHED_THRESHOLD + OBSTACLE_CLEARANCE  # min center distance from the target
 PLACEMENT_ATTEMPTS = 30  # a slot still invalid after this many draws stays parked
 SENSOR_HALF_FOV = math.atan(TAN_HALF_FOV)  # half of the cameras' 73 deg HFOV
+# ground_truth sectors as (offset, half width): front-left, front-right, left, right. The front pair
+# covers the same 73 deg as one front sector, so only the side of a front obstacle is new.
+GROUND_TRUTH_SECTORS = ((SENSOR_HALF_FOV / 2, SENSOR_HALF_FOV / 2), (-SENSOR_HALF_FOV / 2, SENSOR_HALF_FOV / 2),
+                        (math.pi / 2, SENSOR_HALF_FOV), (-math.pi / 2, SENSOR_HALF_FOV))
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
 PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
@@ -88,7 +93,8 @@ class DroneNav2DEnv:
         self.distance_mode = distance_mode
         self.k_nearest = k_nearest
         # Networks are sized from this, not from cfg.state_dim, because coords mode changes it.
-        self.state_dim = (3 * k_nearest + 2 if distance_mode == "coords" else 5) + PREV_ACTION_DIM
+        self.num_readings = {"coords": 3 * k_nearest, "ground_truth": len(GROUND_TRUTH_SECTORS), "camera": 3}[distance_mode]
+        self.state_dim = self.num_readings + PREV_ACTION_DIM + 2
         # One-hot of the last turn (none, left, right) followed by a one-hot of the last speed,
         # all zeros on an episode's first step.
         self.prev_action = torch.zeros(num_envs, PREV_ACTION_DIM, device=device)
@@ -183,9 +189,10 @@ class DroneNav2DEnv:
         elif self.num_obstacles == 0:
             # Every obstacle is parked, so either mode would return this, without
             # its cost on every Stage 0 step.
-            d = torch.full((self.num_envs, 3), MAX_SENSE_RANGE, device=self.device)
+            d = torch.full((self.num_envs, self.num_readings), MAX_SENSE_RANGE, device=self.device)
         elif self.distance_mode == "ground_truth":
-            d = obstacle_sector_distances(self.pos, self.yaw, *obstacles, SENSOR_HALF_FOV, MAX_SENSE_RANGE)
+            d = obstacle_sector_distances(self.pos, self.yaw, *obstacles, SENSOR_HALF_FOV, MAX_SENSE_RANGE,
+                                          sectors=GROUND_TRUTH_SECTORS)
         else:
             d = camera_readings(self.pos, self.yaw, *obstacles)
 

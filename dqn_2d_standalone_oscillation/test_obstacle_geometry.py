@@ -176,8 +176,9 @@ def test_stage0_shortcuts_match_geometry():
     env = E.DroneNav2DEnv(512, DQNConfig(), "cpu", num_obstacles=0)
     obs, _ = env.reset()
     cx, cr, bx, bh = _env_obstacles(env)
-    full = og.obstacle_sector_distances(env.pos, env.yaw, cx, cr, bx, bh, E.SENSOR_HALF_FOV, E.MAX_SENSE_RANGE)
-    assert torch.equal(obs["dqn_state"][:, :3], full)
+    full = og.obstacle_sector_distances(env.pos, env.yaw, cx, cr, bx, bh, E.SENSOR_HALF_FOV, E.MAX_SENSE_RANGE,
+                                        sectors=E.GROUND_TRUTH_SECTORS)
+    assert torch.equal(obs["dqn_state"][:, :env.num_readings], full)
     assert (og.obstacle_surface_distance(env.pos, cx, cr, bx, bh) >= E.DRONE_RADIUS).all()
     print("  Stage 0 shortcuts: identical to the full geometry")
 
@@ -228,12 +229,30 @@ def test_contact_crash_and_obs_wiring():
     env.yaw[3] = math.pi / 2
     env.obstacle_xy[3, 1] = torch.tensor([0.0, 3.0])   # ahead only because of the heading
     d = env._get_obs()[0]["dqn_state"]
-    assert abs(d[2, 0].item() - 4.5) < 1e-4 and abs(d[3, 0].item() - 2.5) < 1e-4
+    # Dead ahead lies on the edge both front halves share, so both read it.
+    assert all(abs(d[2, c].item() - 4.5) < 1e-4 and abs(d[3, c].item() - 2.5) < 1e-4 for c in (0, 1))
     _, reward, terminated, _, _ = env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(4, -1))  # full-speed forward
     assert terminated.tolist() == [True, True, False, False]
     assert (reward[:2] < -49).all() and (reward[2:] > -1).all()
     assert env.last_outcomes()[:2] == ["contact_crash"] * 2
     print("  crash detection and obstacle readings through step(): ok")
+
+
+def test_front_halves_tell_the_side():
+    """A front obstacle off the heading by 20 deg shows only in the front half on its side."""
+    env = E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=5)
+    env.reset()
+    env.obstacle_xy[:] = env._parked_xy
+    env.pos[:] = 0.0
+    env.yaw[:] = 0.0
+    a = math.radians(20.0)
+    env.obstacle_xy[0, 1] = torch.tensor([2.0 * math.cos(a), 2.0 * math.sin(a)])    # left of the heading
+    env.obstacle_xy[1, 1] = torch.tensor([2.0 * math.cos(a), -2.0 * math.sin(a)])   # right of the heading
+    d = env._get_obs()[0]["dqn_state"]
+    assert abs(d[0, 0].item() - 1.5) < 1e-4 and d[0, 1].item() > 1.5
+    assert abs(d[1, 1].item() - 1.5) < 1e-4 and d[1, 0].item() > 1.5
+    assert torch.allclose(d[0, 2:4], d[1, 2:4].flip(0))  # mirrored layouts give mirrored side readings
+    print("  front halves: the reading moves to the side the obstacle is on")
 
 
 def test_outcome_priority():
@@ -332,13 +351,14 @@ def test_reset_obs_starts_next_episode():
 def test_prev_action_in_state():
     env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
     obs, _ = env.reset()
-    assert env.state_dim == 5 + E.PREV_ACTION_DIM and (obs["dqn_state"][:, 3:9] == 0).all()
+    r = env.num_readings
+    assert env.state_dim == r + E.PREV_ACTION_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
     env.pos[:] = 0.0
     # slow straight, mid turning left, fast turning right
     obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8]), "cpu"))
-    assert torch.equal(obs["dqn_state"][:, 3:6], torch.eye(3))
-    assert torch.equal(obs["dqn_state"][:, 6:9], torch.eye(3))
+    assert torch.equal(obs["dqn_state"][:, r:r + 3], torch.eye(3))
+    assert torch.equal(obs["dqn_state"][:, r + 3:r + 6], torch.eye(3))
     expected = torch.tensor(E.SPEED_FRACTIONS) * env.cfg.forward_speed * E.DT
     assert torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
     assert torch.equal(info["reset_obs"]["dqn_state"], obs["dqn_state"])
@@ -349,7 +369,7 @@ if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_outcome_priority,
+                 test_contact_crash_and_obs_wiring, test_front_halves_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
                  test_prev_action_in_state):
