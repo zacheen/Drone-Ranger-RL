@@ -3,12 +3,10 @@ Shared action-space definition and Q-network for the DQN experiments --
 train_dqn.py / dqn_diagnose.py / watch_dqn.py / q_sweep.py all import
 from here instead of each keeping their own copy.
 
-Design v2 (turning fully decoupled from forward motion, matching the
-embodied-AI navigation convention -- e.g. Habitat/AI2-THOR's
-MoveForward + TurnLeft + TurnRight):
-  action 0: forward     vx=forward_speed, yaw_rate=0,        no turning
-  action 1: turn left   vx=0,             yaw_rate=+turn_rate, no forward motion
-  action 2: turn right  vx=0,             yaw_rate=-turn_rate, no forward motion
+Each action is a speed, stop or forward_speed, combined with a turn, none,
+left at +turn_rate or right at -turn_rate, six in all. The index is
+speed * NUM_TURNS + turn, and ACTION_NAMES lists them in that order. The
+Q-network scores the speed and the turn with separate heads and adds them.
 
 Compared to the deprecated v1 (4-action) design: v1's "turn toward
 target" action set its raw vx input to 0, intending vx=0 -- but because
@@ -24,8 +22,8 @@ where the target actually was.
 
 v2 fixes this by making vx an explicit, correctly-computed value for
 every action (no more "leave it at the default and hope it's 0"), and
-by giving turning its own dedicated actions (1 and 2) instead of
-overloading a forward-motion action with adaptive steering.
+by making the turn a choice of its own instead of overloading a
+forward-motion action with adaptive steering.
 """
 import math
 
