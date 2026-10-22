@@ -49,13 +49,13 @@ A flight that does not reach the target goes to the first type below that it mat
 
 | Type | CSV column | Rule |
 |---|---|---|
-| Crash | 撞擊 | The drone's center comes within 0.2 m of an obstacle surface |
-| Out of bounds | 出界 | More than 40 m from the target |
-| Oscillation | 抖動 | At least 10% of steps turn the opposite way from the previous step (left after right or right after left) |
-| Zigzag | zigzag | At least 5% of steps turn against the previous turn, with straight flight allowed in between |
-| Spinning in place | 空轉 | At least 90% of steps are turns |
-| Timeout near the target | 打轉 | Time runs out within 2 m of the target |
-| Far timeout | 遠處 timeout | Time runs out 2 m or more from the target |
+| Crash | `fail crash (%)` | The drone's center comes within 0.2 m of an obstacle surface |
+| Out of bounds | `fail out of bounds (%)` | More than 40 m from the target |
+| Oscillation | `fail oscillation (%)` | At least 10% of steps turn the opposite way from the previous step (left after right or right after left) |
+| Zigzag | `fail zigzag (%)` | At least 5% of steps turn against the previous turn, with straight flight allowed in between |
+| Spinning in place | `fail spin in place (%)` | At least 90% of steps are turns |
+| Timeout near the target | `fail near-target timeout (%)` | Time runs out within 2 m of the target |
+| Far timeout | `fail far timeout (%)` | Time runs out 2 m or more from the target |
 
 The figure below takes the best checkpoint of the first BASE run and, over 3,000 layouts with 5 obstacles, shows the first example of each type. The green dot is the start, the red cross the end and the star the target, and the path runs from dark to light as time goes on.
 
@@ -67,7 +67,7 @@ The figure below takes the best checkpoint of the first BASE run and, over 3,000
 
 ## 4. Experiments from the original baseline to baseline_v2
 
-These experiments all came before baseline_v2 was fixed. They start from the original setup on `main` and add one change at a time. Their evaluation differs from later sections, and the opening of each subsection states it.
+These experiments all came before baseline_v2 was fixed. They start from the original setup on `main` and add one change at a time. Their evaluation differs from later sections, and the opening of each subsection states it. The full per-run numbers are in `docs/results/baseline_to_v2.csv`.
 
 ### 4.1 Two bugs fixed first
 
@@ -180,6 +180,8 @@ Every later experiment changes only the following on top of these defaults.
 | Three forward speeds | The actions become 0.3, 0.75 or 1.5 m/s times 3 turns, with `num_actions` 9 |
 
 ## 6. Experiments from baseline_v2 to baseline_v3
+
+The full per-run numbers for every stage are in `docs/results/v2_to_v3.csv`.
 
 ### 6.1 Results of single changes
 
@@ -305,7 +307,7 @@ Double DQN was tried once before baseline_v2 (V5, see 4.2), when it did not help
 
 ## 8. Experiments after baseline_v3
 
-These experiments are all built on baseline_v3, so each is compared with DDQN + SOFT.
+These experiments are all built on baseline_v3, so each is compared with DDQN + SOFT. The full per-run numbers for every stage are in `docs/results/after_v3.csv`.
 
 | Experiment (5 obstacles) | Runs | best | final | Oscillation | Far timeout | Crash |
 |---|---|---|---|---|---|---|
