@@ -26,9 +26,6 @@ import shutil
 import subprocess
 import sys
 
-from dqn_config import DQNConfig, add_config_args, config_from_args
-from dqn_2d_env import add_env_args
-from select_best import first_episode_success
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TIE_SEED = 2000  # differs from select_best's VALIDATION_SEED and from any report seed
@@ -64,13 +61,11 @@ def break_tie(stage_dir, run_name, num_obstacles, forwarded, tie_episodes):
     if len(tied) < 2:
         return None
 
-    parser = argparse.ArgumentParser()
-    add_env_args(parser)
-    add_config_args(parser)
-    env_args, _ = parser.parse_known_args(forwarded + ["--num_obstacles", str(num_obstacles)])
-    cfg: DQNConfig = config_from_args(env_args)
-    scores = {c: first_episode_success(os.path.join(ckpt_dir, c), env_args, cfg, tie_episodes, seed=TIE_SEED)
-              for c in tied}
+    # Scored in a child process, so this parent never imports torch and stays small while each stage trains.
+    cmd = [sys.executable, os.path.join(SCRIPT_DIR, "tie_scores.py"), ckpt_dir, str(tie_episodes), str(TIE_SEED),
+           str(num_obstacles)] + tied + ["--"] + forwarded
+    out = subprocess.run(cmd, cwd=SCRIPT_DIR, stdout=subprocess.PIPE, text=True, check=True).stdout
+    scores = json.loads(out.strip().splitlines()[-1])
     winner = max(tied, key=lambda c: scores[c])  # max keeps the first of equal scores, the earliest checkpoint
     tie = {"tied": tied, "tie_seed": TIE_SEED, "tie_episodes": tie_episodes, "scores": scores,
            "selected_by_validation": record["best_checkpoint"], "winner": winner}
