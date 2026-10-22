@@ -7,8 +7,8 @@ side of things or by something in the Isaac Lab simulation layer.
 
 Kinematics only: no thrust, no attitude, no gravity. Position and heading
 are integrated directly from the same discrete action -> (vx, yaw_rate)
-mapping used by the real environment, at the same control frequency
-(dt=0.02s, matching Isaac Lab's sim.dt=1/100 * decimation=2).
+mapping used by the real environment. The control step is 0.1 s here, five
+times Isaac Lab's 0.02 s (sim.dt=1/100 * decimation=2).
 
 State layout is identical to the real environment:
     state = [d_front, d_left, d_right, dx, dy]
@@ -41,11 +41,11 @@ import math
 
 import torch
 
-from dqn_config import DQNConfig
+from dqn_config import DQNConfig, SPEED_FRACTIONS
 from camera_emulation import FAR_CLIP, TAN_HALF_FOV, camera_readings
 from obstacle_geometry import _nearest_surface, obstacle_sector_distances, obstacle_surface_distance
 
-DT = 0.02  # seconds per control step, matches Isaac Lab's 50Hz control rate
+DT = 0.1  # seconds per control step, 10 Hz instead of Isaac Lab's 50 Hz
 MAX_SENSE_RANGE = FAR_CLIP  # both distance modes cap at the cameras' far clip
 EPISODE_LENGTH_S = 20.0  # matches the real env's episode_length_s
 TARGET_POS_RANGE = 5.0   # start/target sampled uniformly in [-5, 5] on each axis
@@ -66,6 +66,7 @@ PLACEMENT_ATTEMPTS = 30  # a slot still invalid after this many draws stays park
 SENSOR_HALF_FOV = math.atan(TAN_HALF_FOV)  # half of the cameras' 73 deg HFOV
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
+PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
 
 # Episode outcomes, highest priority first, for a step that meets several conditions.
 OUTCOMES = ("reached", "contact_crash", "out_of_bounds", "timed_out")
@@ -87,7 +88,10 @@ class DroneNav2DEnv:
         self.distance_mode = distance_mode
         self.k_nearest = k_nearest
         # Networks are sized from this, not from cfg.state_dim, because coords mode changes it.
-        self.state_dim = 3 * k_nearest + 2 if distance_mode == "coords" else 5
+        self.state_dim = (3 * k_nearest + 2 if distance_mode == "coords" else 5) + PREV_ACTION_DIM
+        # One-hot of the last turn (none, left, right) followed by a one-hot of the last speed,
+        # all zeros on an episode's first step.
+        self.prev_action = torch.zeros(num_envs, PREV_ACTION_DIM, device=device)
         self.max_steps = int(EPISODE_LENGTH_S / DT)
 
         self.pos = torch.zeros(num_envs, 2, device=device)      # (N, 2) x,y
@@ -121,6 +125,7 @@ class DroneNav2DEnv:
         self.target[env_ids] = (torch.rand(n, 2, device=self.device) * 2 - 1) * TARGET_POS_RANGE
         self.yaw[env_ids] = torch.rand(n, device=self.device) * 2 * math.pi - math.pi
         self.step_count[env_ids] = 0
+        self.prev_action[env_ids] = 0.0
         if self.num_obstacles > 0:
             self._sample_obstacles(env_ids)
 
@@ -184,7 +189,7 @@ class DroneNav2DEnv:
         else:
             d = camera_readings(self.pos, self.yaw, *obstacles)
 
-        state = torch.cat([d, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)  # [obstacle inputs..., dx, dy]
+        state = torch.cat([d, self.prev_action, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)  # [obstacle inputs..., prev action, dx, dy]
         return {"dqn_state": state}, dist
 
     def _nearest_obstacle_points(self, obstacles):
@@ -215,6 +220,12 @@ class DroneNav2DEnv:
         self.pos = self.pos + torch.stack([vx_world, vy_world], dim=-1) * DT
 
         self.step_count += 1
+        turn = torch.sign(yaw_rate_cmd)
+        # Nearest speed, since the tanh squash returns each speed only to within float error.
+        speeds = torch.tensor(SPEED_FRACTIONS, device=self.device) * self.cfg.forward_speed
+        speed = (vx_cmd.unsqueeze(-1) - speeds).abs().argmin(dim=-1)
+        self.prev_action = torch.cat([torch.stack([turn == 0, turn > 0, turn < 0], dim=-1).float(),
+                                      torch.nn.functional.one_hot(speed, len(SPEED_FRACTIONS)).float()], dim=-1)
 
         obs_dict, dist = self._get_obs()
         reached = dist < REACHED_THRESHOLD
@@ -223,7 +234,7 @@ class DroneNav2DEnv:
         # The only crash is obstacle contact (no ground, no attitude to lose), so
         # Stage 0 cannot crash. Contact is tested after the move, which cannot
         # tunnel through an obstacle because a step is at most max_xy_vel * DT
-        # (0.05 m by default), far thinner than any obstacle.
+        # (0.25 m by default), thinner than any obstacle.
         if self.num_obstacles == 0:
             crashed = torch.zeros_like(reached)
         else:

@@ -15,10 +15,11 @@ import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import QNetwork, ACTION_NAMES, NUM_TURNS
+from dqn_2d_env import PREV_ACTION_DIM
 
 
 def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float, device: str):
-    q_net = QNetwork(state_dim=cfg.state_dim, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
+    q_net = QNetwork(state_dim=cfg.state_dim + PREV_ACTION_DIM, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
     q_net.load_state_dict(torch.load(checkpoint_path, map_location=device))
     q_net.to(device)
     q_net.eval()
@@ -38,7 +39,7 @@ def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float
             ang_rad = math.radians(float(ang_deg))
             dx = dist * math.cos(ang_rad)
             dy = dist * math.sin(ang_rad)
-            states.append([10.0, 10.0, 10.0, dx, dy])
+            states.append([10.0, 10.0, 10.0] + [0.0] * PREV_ACTION_DIM + [dx, dy])  # as on an episode's first step
         state_tensor = torch.tensor(states, dtype=torch.float32, device=device)
 
         with torch.no_grad():

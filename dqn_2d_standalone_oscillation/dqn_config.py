@@ -14,8 +14,9 @@ import argparse
 from dataclasses import dataclass, fields
 
 # The forward speeds the actions choose from, as fractions of forward_speed.
-# None is zero, so the drone cannot stop.
-SPEED_FRACTIONS = (0.2, 0.5, 1.0)
+# None is zero, so the drone cannot stop. At 0.2 the slowest turn radius was 0.375 m, too wide to
+# steer off an obstacle already close, and 0.05 brings it to about 0.09 m.
+SPEED_FRACTIONS = (0.05, 0.2, 1.0)
 
 
 @dataclass

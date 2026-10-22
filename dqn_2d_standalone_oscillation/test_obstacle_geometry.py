@@ -17,6 +17,7 @@ import torch
 import dqn_2d_env as E
 import obstacle_geometry as og
 from dqn_config import DQNConfig
+from dqn_action_space import discrete_action_to_continuous
 
 HALF = math.radians(36.5)
 MAX_RANGE = 10.0
@@ -221,8 +222,8 @@ def test_contact_crash_and_obs_wiring():
     env.pos[:] = 0.0
     env.yaw[:] = 0.0
     env.target[:] = torch.tensor([-20.0, 0.0])         # behind the drone, never reached
-    env.obstacle_xy[0, 1] = torch.tensor([0.74, 0.0])  # r=0.5, surface 0.24 m ahead, so one 0.05 m step ends within DRONE_RADIUS
-    env.obstacle_xy[1, 3] = torch.tensor([0.0, 0.69])  # beside the drone, surface 0.19 m away, already within DRONE_RADIUS
+    env.obstacle_xy[0, 1] = torch.tensor([0.74, 0.0])  # r=0.5, surface 0.24 m ahead, so one 0.25 m step ends within DRONE_RADIUS
+    env.obstacle_xy[1, 3] = torch.tensor([0.25, 0.69])  # beside where the 0.25 m step ends, surface 0.19 m away, within DRONE_RADIUS
     env.obstacle_xy[2, 1] = torch.tensor([5.0, 0.0])   # clear
     env.yaw[3] = math.pi / 2
     env.obstacle_xy[3, 1] = torch.tensor([0.0, 3.0])   # ahead only because of the heading
@@ -247,7 +248,7 @@ def test_outcome_priority():
 
 def test_coords_mode_hand_checked():
     env = E.DroneNav2DEnv(3, DQNConfig(), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=2)
-    assert env.state_dim == 8
+    assert env.state_dim == 8 + E.PREV_ACTION_DIM
     env.reset()
     env.obstacle_xy[:] = env._parked_xy
     env.obstacle_active[:] = True
@@ -268,7 +269,8 @@ def test_coords_mode_hand_checked():
         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     ])
     assert torch.allclose(s[:, :6], expected, atol=1e-5), s
-    assert torch.allclose(s[0, 6:], torch.tensor([3.0, 4.0])) and torch.allclose(s[1, 6:], torch.tensor([4.0, -3.0]), atol=1e-5)
+    assert (s[:, 6:-2] == 0).all()  # previous-action slots before any step
+    assert torch.allclose(s[0, -2:], torch.tensor([3.0, 4.0])) and torch.allclose(s[1, -2:], torch.tensor([4.0, -3.0]), atol=1e-5)
     stage0 = E.DroneNav2DEnv(4, DQNConfig(), "cpu", num_obstacles=0, distance_mode="coords")
     obs, _ = stage0.reset()
     assert obs["dqn_state"].shape == (4, stage0.state_dim) and (obs["dqn_state"][:, :-2] == 0).all()
@@ -298,12 +300,13 @@ def test_pre_reset_state_and_breakdown():
     env.reset()
     env.pos[:] = 0.0
     env.yaw[:] = 0.0
-    env.target[:] = torch.tensor([0.78, 0.0])  # one 0.05 m step brings it within REACHED_THRESHOLD
+    step = DQNConfig().max_xy_vel * E.DT  # one full-speed step
+    env.target[:] = torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0])  # one step brings it within REACHED_THRESHOLD
     _, reward, terminated, _, _ = env.step(torch.tensor([[10.0, 0.0, 0.0]]))
     assert terminated.item()
     end = env.pre_reset_state
-    assert torch.allclose(end["pos"][0], torch.tensor([0.05, 0.0]), atol=1e-4)
-    assert torch.allclose(end["target"][0], torch.tensor([0.78, 0.0]))
+    assert torch.allclose(end["pos"][0], torch.tensor([step, 0.0]), atol=1e-4)
+    assert torch.allclose(end["target"][0], torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0]))
     assert not torch.equal(env.target[0], end["target"][0])  # resampled for the next episode
     assert env.last_reward_breakdown["rew_reached"].item() == 100.0
     assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed")), reward)
@@ -315,7 +318,8 @@ def test_reset_obs_starts_next_episode():
     env.reset()
     env.pos[:] = 0.0
     env.yaw[:] = 0.0
-    env.target[:] = torch.tensor([[0.78, 0.0], [3.0, 0.0]])  # env 0 reaches the target this step, env 1 does not
+    near = E.REACHED_THRESHOLD + DQNConfig().max_xy_vel * E.DT - 0.02
+    env.target[:] = torch.tensor([[near, 0.0], [3.0, 0.0]])  # env 0 reaches the target this step, env 1 does not
     obs, _, terminated, truncated, info = env.step(torch.tensor([[10.0, 0.0, 0.0]] * 2))
     assert (terminated | truncated).tolist() == [True, False]
     fresh, _ = env._get_obs()
@@ -325,13 +329,30 @@ def test_reset_obs_starts_next_episode():
     print("  reset_obs: finished envs show the new episode, running envs are unchanged")
 
 
+def test_prev_action_in_state():
+    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
+    obs, _ = env.reset()
+    assert env.state_dim == 5 + E.PREV_ACTION_DIM and (obs["dqn_state"][:, 3:9] == 0).all()
+    env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
+    env.pos[:] = 0.0
+    # slow straight, mid turning left, fast turning right
+    obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8]), "cpu"))
+    assert torch.equal(obs["dqn_state"][:, 3:6], torch.eye(3))
+    assert torch.equal(obs["dqn_state"][:, 6:9], torch.eye(3))
+    expected = torch.tensor(E.SPEED_FRACTIONS) * env.cfg.forward_speed * E.DT
+    assert torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
+    assert torch.equal(info["reset_obs"]["dqn_state"], obs["dqn_state"])
+    print("  previous action: one-hot after a step, zeros at reset")
+
+
 if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
                  test_contact_crash_and_obs_wiring, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
-                 test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode):
+                 test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
+                 test_prev_action_in_state):
         print(test.__name__)
         test()
     print("all tests passed")
