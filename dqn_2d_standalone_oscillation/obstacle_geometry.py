@@ -78,24 +78,28 @@ def _nearest_surface(pos, circle_xy, circle_r, box_xy, box_half):
     return torch.cat([dist_c, dist_b], dim=1), bearing
 
 
-def obstacle_sector_distances(pos, yaw, circle_xy, circle_r, box_xy, box_half, half_angle, max_range):
-    """[d_front, d_left, d_right] as an (N, 3) tensor.
+def obstacle_sector_distances(pos, yaw, circle_xy, circle_r, box_xy, box_half, half_angle, max_range, sectors=None):
+    """[d_front, d_left, d_right] as an (N, 3) tensor, or one column per entry of sectors.
 
     pos (N, 2) and yaw (N,) are the drone's position and heading, in the
     same frame as the obstacle centers. circle_xy (N, Kc, 2) with radii
     circle_r (Kc,), box_xy (N, Kb, 2) with half extents box_half (Kb, 2).
+    sectors is a sequence of (offset, half width) pairs in radians relative to
+    the heading. When given, half_angle is ignored.
     Needs at least one obstacle. A reading of 0 means the drone's center is
     inside an obstacle.
     """
+    if sectors is None:
+        sectors = ((0.0, half_angle), (math.pi / 2.0, half_angle), (-math.pi / 2.0, half_angle))
     dist, bearing = _nearest_surface(pos, circle_xy, circle_r, box_xy, box_half)
     inside = dist <= 0.0
     readings = []
-    for offset in (0.0, math.pi / 2.0, -math.pi / 2.0):
+    for offset, width in sectors:
         center = (yaw + offset).unsqueeze(1)
         off_axis = torch.atan2(torch.sin(bearing - center), torch.cos(bearing - center))
-        in_sector = off_axis.abs() <= half_angle
+        in_sector = off_axis.abs() <= width
         edge_hits = []
-        for edge in (center - half_angle, center + half_angle):
+        for edge in (center - width, center + width):
             u = torch.stack([torch.cos(edge[:, 0]), torch.sin(edge[:, 0])], dim=-1)
             edge_hits.append(torch.cat([
                 _ray_hit_circle(pos, u, circle_xy, circle_r),

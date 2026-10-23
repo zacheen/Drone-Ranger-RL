@@ -43,8 +43,9 @@ for i in range(args.num_obstacles):
     print(f"[TRACE] obstacle {i} at ({x:.2f}, {y:.2f}){parked}")
 print()
 
-# Coords mode shows its nearest slot in place of the three sector readings.
-reading_names = ("s1_x", "s1_y", "v1") if args.distance_mode == "coords" else ("d_front", "d_left", "d_right")
+# Coords mode shows its nearest slot in place of the sector readings.
+reading_names = {"coords": ("s1_x", "s1_y", "v1"), "camera": ("d_front", "d_left", "d_right"),
+                 "ground_truth": ("d_fl", "d_fr", "d_left", "d_right")}[args.distance_mode]
 header = (f"{'step':>5} {'action':>10} {'pos_x':>7} {'pos_y':>7} {'d(pos)':>7} "
           + "".join(f"{name:>7} " for name in reading_names) +
           f"{'dist':>7} {'yaw_cos':>8} {'vx':>7} {'r_progress':>10} {'r_total':>8}")
@@ -70,7 +71,7 @@ for step in range(args.max_steps):
 
     print(f"{step:>5} {ACTION_NAMES[action_idx[0].item()]:>10} "
           f"{new_pos[0].item():>7.3f} {new_pos[1].item():>7.3f} {pos_delta:>7.4f} "
-          f"{state[0,0].item():>7.3f} {state[0,1].item():>7.3f} {state[0,2].item():>7.3f} "
+          + "".join(f"{state[0, c].item():>7.3f} " for c in range(len(reading_names))) +
           f"{dist_now.item():>7.3f} {breakdown['yaw_cos'][0].item():>8.3f} "
           f"{breakdown['vx_signed'][0].item():>7.3f} {breakdown['rew_progress'][0].item():>10.4f} "
           f"{reward[0].item():>8.4f}")
