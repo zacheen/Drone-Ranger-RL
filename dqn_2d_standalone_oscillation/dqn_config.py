@@ -48,6 +48,8 @@ class DQNConfig:
     target_tau: float = 0.0005
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
+    # Decoupled weight decay through AdamW. 0 keeps plain Adam.
+    weight_decay: float = 0.0
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

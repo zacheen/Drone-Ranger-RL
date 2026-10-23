@@ -90,9 +90,15 @@ if args.resume_from:
     print(f"[DQN] resumed weights from {args.resume_from}")
 
 q_target.load_state_dict(q_net.state_dict())
-optimizer = torch.optim.Adam(q_net.parameters(), lr=cfg.learning_rate)
+if cfg.weight_decay > 0:
+    optimizer = torch.optim.AdamW(q_net.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
+else:
+    optimizer = torch.optim.Adam(q_net.parameters(), lr=cfg.learning_rate)
 if args.resume_optimizer_from:
     optimizer.load_state_dict(torch.load(args.resume_optimizer_from, map_location=device))
+    # A loaded state carries the decay it was saved with, so the run's own value is put back.
+    for group in optimizer.param_groups:
+        group["weight_decay"] = cfg.weight_decay
     print(f"[DQN] resumed optimizer state from {args.resume_optimizer_from}")
 elif args.resume_from:
     print("[DQN] resumed weights but NOT optimizer state (no --resume_optimizer_from given) -- Adam's per-parameter momentum starts fresh this run")
