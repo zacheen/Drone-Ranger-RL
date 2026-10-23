@@ -1,49 +1,49 @@
 # DQN Drone Obstacle Avoidance, Experiment Summary
 
-Compiled on 2026-10-19. Every number comes from the 2D kinematic environment in `dqn_2d_standalone_oscillation`, and nothing has been tested in Isaac Lab yet.
+Compiled on 2026-10-22. Every number comes from the 2D kinematic environment in `dqn_2d_standalone_oscillation`, and nothing has been tested in Isaac Lab yet.
 
-## 1. Research goals
+## Research goals
 
-### 1.1 Why a 2D environment
+### Why a 2D environment
 
 - The Isaac Lab simulation includes physics, attitude control and camera rendering, so training is slow, and when something goes wrong it is hard to tell whether the cause is the DQN itself or the simulation layer.
-- So I look for a working DQN design in a 2D kinematic environment that uses the same state, actions and control rate as the Isaac env (0.02 s per step).
+- So I look for a working DQN design in a 2D kinematic environment that uses the same state, actions and control rate as the Isaac env (0.02 s per step). From baseline_v4 the control step is 0.1 s (see "Why a longer control step trains more stably").
 
-### 1.2 Design constraints
+### Design constraints
 
-- The input uses only what a real drone can measure, meaning the obstacle distances along the three depth-camera directions and the target's relative position, never the true obstacle coordinates (see section 2).
+- The input uses only what a real drone can measure, meaning the obstacle distances within the depth-camera sectors and the target's relative position, never the true obstacle coordinates (see "How my environment differs from RipZou's").
 - Training happens in simulation, so a curriculum can start from easy scenarios at no real-world cost.
 
-### 1.3 Main goals
+### Main goals
 
 1. Fix oscillation, meaning swinging left and right in front of an obstacle, spinning in place, or hovering stuck.
 2. Fix training instability, meaning a policy that learns well midway and then gets worse.
-3. Raise the success rate with 5 obstacles, where the best setting so far reaches about 92% to 93%.
+3. Raise the success rate with 5 obstacles, where baseline_v4 reaches 99.44%.
 
-## 2. How my environment differs from RipZou's
+## How my environment differs from RipZou's
 
 RipZou's `dqn_2d_standalone` on `origin/main` feeds the true obstacle coordinates to the network. I consider direct coordinates information a real drone cannot obtain, so my environment still simulates the sensors, only without noise.
 
 | Item | RipZou (`dqn_2d_standalone`) | Mine (`dqn_2d_standalone_oscillation`) |
 |---|---|---|
 | Obstacle input | Relative center coordinates and radius (ox, oy, r) of the K nearest visible obstacles | Distance to the nearest obstacle surface in each of three 73 degree sectors, front, left and right |
-| State | [dx, dy, ox_1, oy_1, r_1, ...], divided by 10 | [d_front, d_left, d_right, dx, dy] |
+| State | [dx, dy, ox_1, oy_1, r_1, ...], divided by 10 | [d_front, d_left, d_right, dx, dy], with the front sector split into front-left and front-right and the previous action added from baseline_v4 (see "Why baseline_v4 looks the way it does") |
 | Field of view | Every direction within 10 m | Only the three camera sectors, with a blind spot behind, matching the three depth cameras of the Isaac env |
 | Noise | None | None (`ground_truth` mode), with a separate `camera` mode that emulates camera readings |
 | Obstacle shape and layout | Circles of radius 0.5 m, rejection-sampled in a 10 m box, with the first one placed on the straight line from start to target | The same, deliberately reusing RipZou's commit 1643e0e so that both versions use the same obstacle environment |
 
 I also tried `coords` mode, which feeds the coordinates of the nearest obstacle surface points directly, as an upper reference with complete information. With 3 obstacles it reached only 63.98% (3000 ep) and 80.10% (6000 ep), both below the 87.6% of the sensor-distance input. Each length has a single run, so it settles nothing, but it shows no sign that the policy fails without coordinates.
 
-## 3. Evaluation
+## Evaluation
 
 - A checkpoint is saved every 100 episodes, and the one with the highest success on the validation set (seed 1000, 1,000 layouts) is kept. Ties are broken on seed 2000.
 - The reported numbers come from 10,000 layouts of seed 777, which was never used to choose anything.
 - **best** is the success rate of the selected checkpoint and stands for what the training can reach.
 - **final** is the success rate of the last checkpoint and stands for stability. The larger the gap between the two, the more the policy degraded late in training.
 - Success often swings by 30 to 40 percentage points between checkpoints, so every arm runs at least 3 times and comparisons use Welch's t-test.
-- One episode in this document is one training block, in which 64 environments each run 100 steps. A real flight lasts at most 20 seconds, or 1,000 steps.
+- One episode in this document is one training block, in which 64 environments each run 100 steps. A real flight lasts at most 20 seconds, which is 1,000 steps at the 0.02 s control step and 200 steps at the 0.1 s step of baseline_v4.
 
-### 3.1 Failure types
+### Failure types
 
 A flight that does not reach the target goes to the first type below that it matches.
 
@@ -65,11 +65,11 @@ The figure below takes the best checkpoint of the first BASE run and, over 3,000
 - **Apart from the crash, every example spends its last 200 steps stopped.** Oscillation, spinning in place and far timeout differ only in how the drone turns while stopped, swinging left and right, turning one way, or not turning at all. The timeout near the target never even left its start.
 - This supports the view that swinging and stopping share one cause. In some states the network rates stopping highest, and once stopped the turns score almost the same, so it stays in place and turns toward whichever side is slightly higher.
 
-## 4. Experiments from the original baseline to baseline_v2
+## Experiments from the original baseline to baseline_v2
 
 These experiments all came before baseline_v2 was fixed. They start from the original setup on `main` and add one change at a time. Their evaluation differs from later sections, and the opening of each subsection states it. The full per-run numbers are in `docs/results/baseline_to_v2.csv`.
 
-### 4.1 Two bugs fixed first
+### Two bugs fixed first
 
 | Fix | Before | After | Result (no obstacles, 10 runs per arm) |
 |---|---|---|---|
@@ -78,7 +78,7 @@ These experiments all came before baseline_v2 was fixed. They start from the ori
 
 The same round showed that checkpoint selection has the largest effect of anything tried. Picking best on a separate 1,000 layouts lifted the median of almost every arm to 99% to 100%, while the final checkpoints of one arm ranged from about 20% to 100%, so from then on both best and final are reported.
 
-### 4.2 Ablation without obstacles
+### Ablation without obstacles
 
 Each arm ran 10 times and was evaluated on 2,000 layouts of seed 1. An arm passed the screen when its final mean beat A1 (81.0%) by at least 5 percentage points without fewer runs at or above 90%.
 
@@ -97,7 +97,7 @@ Each arm ran 10 times and was evaluated on 2,000 layouts of seed 1. An arm passe
 - Adding hysteresis at evaluation (a left and right reversal must win by delta before the action switches) brought the best checkpoint of all 10 A1 runs to 100%, but it only works at evaluation.
 - With 10 runs per arm, no single change or combination beat A1 significantly.
 
-### 4.3 Ablation with 3 obstacles
+### Ablation with 3 obstacles
 
 Each arm ran 3 times for 1500 ep and was evaluated on 2,000 layouts of seed 1, adding one change at a time to the setup after the bug fixes.
 
@@ -114,7 +114,7 @@ Each arm ran 3 times for 1500 ep and was evaluated on 2,000 layouts of seed 1, a
 | The 3000 ep arm with 2 gradient updates per environment step instead, without the 0.03 floor (2 runs) | 41.2% (44.7 / 37.6) | 90.3% (93.7 / 86.9) |
 | The 3000 ep arm with the target copied every 20 ep instead, without the 0.03 floor (2 runs) | 80.8% (83.8 / 77.9) | 82.2% (83.8 / 80.5) |
 
-- Changes that did not raise best were learning-rate decay, gamma 0.995, Advantage Learning, a previous-action input, a 256-unit network and a lower learning rate. Learning-rate decay and gamma 0.995 did raise final by about 10 percentage points (see 9.2).
+- Changes that did not raise best were learning-rate decay, gamma 0.995, Advantage Learning, a previous-action input, a 256-unit network and a lower learning rate. Learning-rate decay and gamma 0.995 did raise final by about 10 percentage points (see "Getting worse with more training").
 - The first 2 runs with the 0.03 floor averaged 89.8%, the third pulled the arm down to 87.0%, and 5 later runs on 10,000 layouts reached only 82.5%, so part of the first gain was luck in selection.
 
 The final setup was then compared with two more changes on 10,000 layouts of seed 777, 3 runs each.
@@ -129,7 +129,7 @@ The final setup was then compared with two more changes on 10,000 layouts of see
 - best rises by 3 to 4.5 percentage points, about the gap between two evaluation sets for one unchanged setup, so only the gain in final is clear.
 - Copying the target every 20 ep gave the most consistent 3 runs (87.93%, 87.71%, 87.09%), so it went into baseline_v2.
 
-## 5. Why baseline_v2 looks the way it does
+## Why baseline_v2 looks the way it does
 
 | Change | Before | After | Reason | Evidence (3 obstacles, seed 1, 2,000 layouts, best) |
 |---|---|---|---|---|
@@ -141,12 +141,12 @@ The final setup was then compared with two more changes on 10,000 layouts of see
 | The three changes above combined (two output heads, progress reward 0.15, buffer 500,000) | | | | 81.1% (3000 ep) |
 | Exploration floor | 0.05 | 0.03 | Too many random actions late in training disrupt a learned policy | 87.0% |
 | Target copy interval | Every 10 ep | Every 20 ep | A slower-moving target makes the Q-values oscillate less | final 60.4% to 73.7% (seed 777) |
-| Training length | 1500 ep | 3000 ep | Runs were often still improving at 1500 ep | See 4.3 |
-| Curriculum | Each obstacle count trained from scratch | 1 → 2 → 3 → 5, each stage starting from the previous stage's best | Learn the easy cases before the hard ones | See 6.3 |
+| Training length | 1500 ep | 3000 ep | Runs were often still improving at 1500 ep | See "Ablation with 3 obstacles" |
+| Curriculum | Each obstacle count trained from scratch | 1 → 2 → 3 → 5, each stage starting from the previous stage's best | Learn the easy cases before the hard ones | See "New curriculum 1 → 2 → 3 → 5 against the old 3 → 5" |
 
 These settings used to live only in the arguments that outside scripts passed, so leaving out one argument trained a different setup. All of them became code defaults, tagged `baseline_v2.0`.
 
-### 5.1 Training parameters of baseline_v2
+### Training parameters of baseline_v2
 
 Once the changes above were fixed, these are the defaults of `baseline_v2`.
 
@@ -179,11 +179,11 @@ Every later experiment changes only the following on top of these defaults.
 | No hover | Both speeds fly forward |
 | Three forward speeds | The actions become 0.3, 0.75 or 1.5 m/s times 3 turns, with `num_actions` 9 |
 
-## 6. Experiments from baseline_v2 to baseline_v3
+## Experiments from baseline_v2 to baseline_v3
 
 The full per-run numbers for every stage are in `docs/results/v2_to_v3.csv`.
 
-### 6.1 Results of single changes
+### Results of single changes
 
 The numbers are means (%) on 10,000 layouts of seed 777 with 5 obstacles unless stated otherwise.
 
@@ -198,7 +198,7 @@ The numbers are means (%) on 10,000 layouts of seed 777 with 5 obstacles unless 
 | Previous turn (V2) | 3 | 86.11 (88.57 / 85.49 / 84.26) | 64.06 (72.64 / 60.06 / 59.47) | | | |
 | No hover | 3 | 71.06 (73.20 / 71.51 / 68.47) | 62.46 (65.82 / 63.77 / 57.80) | 0.01 | 0.00 | 27.65 |
 
-### 6.2 Expectations, results and likely causes
+### Expectations, results and likely causes
 
 **SOFT (the target moves 0.05% toward the online network at every step)**
 - The expectation was that a target no longer jumping every 20 ep gives a smoother learning target and steadier training.
@@ -214,19 +214,19 @@ The numbers are means (%) on 10,000 layouts of seed 777 with 5 obstacles unless 
 - The expectation was that stopping or spinning in place would no longer score 0, so hovering stuck would drop.
 - Far timeouts fell from 5.90% (the first 3 BASE runs) to 1.35% and final rose by about 9 percentage points, but best did not rise, and oscillation and crashes increased.
 - A likely cause is that the penalty forces the drone to keep moving, so it gets stuck less, but it pushes through or turns erratically in front of obstacles more often.
-- This is not necessarily bad. The penalty keeps the network from settling in place and makes it keep trying to move forward, and the extra crashes may come partly from the three range readings missing obstacles, for example in the rear quarters. If the input later becomes camera images with more information, a policy that does not stop has a better chance of learning to avoid them. This is an untested hypothesis. Three forward speeds reach a similar effect by making a full stop impossible, with better results (see 6.4).
+- This is not necessarily bad. The penalty keeps the network from settling in place and makes it keep trying to move forward, and the extra crashes may come partly from the three range readings missing obstacles, for example in the rear quarters. If the input later becomes camera images with more information, a policy that does not stop has a better chance of learning to avoid them. This is an untested hypothesis. Three forward speeds reach a similar effect by making a full stop impossible, with better results (see "Combinations"). The later crash analysis found other causes, a slowest speed whose turn radius is too large and an input that cannot tell left from right, while only about 17% to 26% of crashes hit an obstacle in the blind diagonals between the front and side sectors (see "The action-space limit" and "The observation limit").
 
 **Previous action as input (V2, V2S)**
 - The expectation was that knowing the previous action would let the network avoid swinging left and right.
-- Both made things worse, and V2S doubled oscillation. Adding it to DDQN made things worse as well (see 6.4).
-- There are four likely causes. First, copying the previous action is right most of the time, so the network easily learns that shortcut and then fails to switch when it should, which imitation learning calls the copycat problem or causal confusion. Second, the action shapes the next input and the next input shapes the action, which can form a self-reinforcing loop. Third, the next state in the TD target contains the action just taken, which makes the learning target less stable. Fourth, the input size differs, so these runs cannot start from the shared obstacle-free checkpoint (although the experiment in 6.3 shows the starting point has no significant effect).
+- Both made things worse, and V2S doubled oscillation. Adding it to DDQN made things worse as well (see "Combinations").
+- There are four likely causes. First, copying the previous action is right most of the time, so the network easily learns that shortcut and then fails to switch when it should, which imitation learning calls the copycat problem or causal confusion. Second, the action shapes the next input and the next input shapes the action, which can form a self-reinforcing loop. Third, the next state in the TD target contains the action just taken, which makes the learning target less stable. Fourth, the input size differs, so these runs cannot start from the shared obstacle-free checkpoint (although the experiment in "New curriculum 1 → 2 → 3 → 5 against the old 3 → 5" shows the starting point has no significant effect).
 
 **No hover (every action flies forward)**
 - The expectation was to remove hovering stuck and spinning in place at the root.
 - With 3 obstacles crashes rose to 14% to 17% and best fell to 78.66%. With 5 obstacles crashes reached 27.65% and best 71.06%.
-- A likely cause is that the drone needs to slow down or stop to reorient in front of an obstacle. This is why the design later moved to three forward speeds (see 6.4).
+- A likely cause is that the drone needs to slow down or stop to reorient in front of an obstacle. This is why the design later moved to three forward speeds (see "Combinations").
 
-### 6.3 New curriculum 1 → 2 → 3 → 5 against the old 3 → 5
+### New curriculum 1 → 2 → 3 → 5 against the old 3 → 5
 
 - I first expected the old curriculum to be better, because the first few arms seemed to score higher with it.
 - To rule out the effect of the starting point, I used different obstacle-free starting checkpoints (A, B, C) and ran 5 times per cell.
@@ -244,10 +244,10 @@ best (%) with 5 obstacles, sorted from high to low in each cell.
 - With 3 obstacles the new curriculum was actually better for start C (92.10% against 85.98%, p=0.044), but that is 1 of 6 comparisons and it is not significant after correcting for multiple comparisons.
 - The decision is to keep 1 → 2 → 3 → 5. The two reach the same success rate, while the new one is more intuitive and varies less with 3 obstacles.
 
-### 6.4 Combinations
+### Combinations
 
 Each combination is compared only with the arm that has one change fewer.
-- baseline_v2 against DDQN, see 6.1.
+- baseline_v2 against DDQN, see "Results of single changes".
 - DDQN against DDQN + SOFT.
 - DDQN against DDQN + previous turn and speed.
 - DDQN against DDQN + three forward speeds.
@@ -270,16 +270,16 @@ Each combination is compared only with the arm that has one change fewer.
 **DDQN + previous turn and speed**
 - The expectation was that once DDQN makes the Q-values more accurate, the previous-action input might stop doing harm.
 - best fell from 91.82% to 84.98% and far timeouts rose from 2.30% to 8.54%, as bad as on baseline_v2.
-- A likely cause is that none of the four causes listed in 6.2 has to do with Q-value overestimation, so DDQN cannot reach them.
+- A likely cause is that none of the four causes listed in "Expectations, results and likely causes" has to do with Q-value overestimation, so DDQN cannot reach them.
 
 **Three forward speeds (0.3, 0.75 or 1.5 m/s, times 3 turns)**
 - The motivation is that removing hover leads to crashes, while hover is the source of hovering stuck, so the drone may slow down but can never fully stop.
-- The speeds were chosen with the turning radius in mind. At a turn rate of 0.8 rad/s the radii are 0.38, 0.94 and 1.88 m, all inside the ±5 m arena.
+- The speeds were chosen with the turning radius in mind. At a turn rate of 0.8 rad/s the radii are 0.38, 0.94 and 1.88 m, all inside the ±5 m arena. Fitting inside the arena turned out not to be enough. The later crash analysis showed that 0.375 m is too wide to steer off an obstacle that is already close, which led to lowering the speeds (see "The action-space limit").
 - With three speeds added to DDQN, best is 92.26%, on par with DDQN's 91.82%, while oscillation falls from 3.22% to 0.02% and far timeouts from 2.30% to 0.08%. Stopping and swinging almost disappear, and nearly every failure becomes a crash (7.63%).
 - final did not improve (67.17% against 62.55%, p=0.82), so three speeds fix swinging and stopping, not training instability.
 - Adding three speeds to the arm with the previous-action input lifted best from 84.98% to 91.56%, back to the level of DDQN. Three speeds also remove the stopping that the previous-action input caused.
 
-## 7. Why baseline_v3 looks the way it does
+## Why baseline_v3 looks the way it does
 
 `baseline_v3` is `baseline_v2` plus Double DQN and a soft target update, tagged `baseline_v3.0`. Every new experiment branches from it, and its control is DDQN + SOFT.
 
@@ -294,7 +294,7 @@ Evidence (5 obstacles, seed 777, 10,000 layouts)
 - Each arm has only 3 runs, and against DDQN the final at 5 obstacles gives p=0.34. It was chosen because the three stages point the same way and because it best serves the goal of training that converges.
 - SOFT alone has a higher best (93.17%), but its final is only 68.18%, so it was not chosen.
 
-Double DQN was tried once before baseline_v2 (V5, see 4.2), when it did not help and scored below A1.
+Double DQN was tried once before baseline_v2 (V5, see "Ablation without obstacles"), when it did not help and scored below A1.
 
 | No obstacles, 10 runs per arm | final median | final mean | final at or above 90% | best median | best at or above 90% |
 |---|---|---|---|---|---|
@@ -305,33 +305,180 @@ Double DQN was tried once before baseline_v2 (V5, see 4.2), when it did not help
 - The conditions then differed from later ones. There were no obstacles, 3 actions, a buffer of 50,000, a target copied every 10 ep and a progress reward of 0.05.
 - Without obstacles the best of A1 was already close to 100%, which left DDQN almost no room to improve. Reducing Q-value overestimation matters more in hard scenarios, which is why the gains in best and oscillation appeared only with obstacles on the new setup.
 
-## 8. Experiments after baseline_v3
+## Experiments from baseline_v3 to baseline_v4
 
-These experiments are all built on baseline_v3, so each is compared with DDQN + SOFT. The full per-run numbers for every stage are in `docs/results/after_v3.csv`.
+These experiments are all built on baseline_v3, so each is compared with DDQN + SOFT. DDQN + SOFT was later extended to 5 runs, and this section uses those 5 runs, 92.20% best and 81.28% final. The full per-run numbers for every stage are in `docs/results/after_v3.csv`.
 
-| Experiment (5 obstacles) | Runs | best | final | Oscillation | Far timeout | Crash |
-|---|---|---|---|---|---|---|
-| DDQN + SOFT (baseline_v3) | 3 | 91.80 (93.90 / 91.07 / 90.43) | 83.12 (91.07 / 87.96 / 70.32) | 3.67 | 1.51 | 1.29 |
-| **Plus three forward speeds** | 3 | 91.76 (94.38 / 92.04 / 88.86) | **87.60** (92.13 / 85.65 / 85.03) | **0.01** | **0.00** | 8.21 |
-| Plus three forward speeds, crash penalty -50 changed to -100 | 3 | 91.00 (93.82 / 91.91 / 87.28) | 75.01 (88.59 / 80.37 / 56.07) | 0.00 | 0.00 | 8.98 |
-| Plus a replay buffer of 2,000,000 instead of 500,000 | 3 | 90.13 (92.90 / 88.80 / 88.70) | 73.71 (83.25 / 72.31 / 65.57) | 2.81 | 3.29 | 2.91 |
+Every number is 5 obstacles, seed 777, 10,000 layouts, with each run in parentheses from highest to lowest. p-values are Welch t-tests against DDQN + SOFT.
 
-**DDQN + SOFT + three forward speeds**
-- The expectation was that SOFT and DDQN handle training instability and three speeds handle swinging and stopping, so the two could add up.
-- best held at 91.76%, and final is the highest so far at 87.60%, with runs of 92.13%, 85.65% and 85.03%, while oscillation and far timeouts are almost 0. Against DDQN + SOFT the final gives p=0.57, which is not yet significant with 3 runs.
-- Nearly every failure is a crash (8.21%).
+### Single changes
 
-**Crash penalty doubled (-50 to -100)**
+| Experiment | Runs | best | final | Oscillation | Crash |
+|---|---|---|---|---|---|
+| DDQN + SOFT (baseline_v3) | 5 | 92.20 (94.34 / 93.90 / 91.25 / 91.07 / 90.43) | 81.28 (91.07 / 87.96 / 86.60 / 70.43 / 70.32) | 2.97 | 1.70 |
+| Three forward speeds 0.3 / 0.75 / 1.5 m/s | 3 | 91.76 (94.38 / 92.04 / 88.86) | 87.60 (92.13 / 85.65 / 85.03) | 0.01 | 8.21 |
+| Three forward speeds, crash penalty -50 to -100 | 3 | 91.00 (93.82 / 91.91 / 87.28) | 75.01 (88.59 / 80.37 / 56.07) | 0.00 | 8.98 |
+| replay buffer 500,000 to 2,000,000 | 3 | 90.13 (92.90 / 88.80 / 88.70) | 73.71 (83.25 / 72.31 / 65.57) | 2.81 | 2.91 |
+| gamma 0.98 to 0.996 | 3 | 81.87 (86.32 / 83.02 / 76.28) | 63.54 (69.42 / 64.80 / 56.40), p=0.025 | 14.03 | 0.80 |
+| **Control step dt 0.02 s to 0.1 s** | 5 | **94.63** (95.15 / 95.10 / 94.76 / 94.64 / 93.49), p=0.035 | **92.59** (95.99 / 92.49 / 92.29 / 92.13 / 90.05), p=0.065 | 4.90 | 0.17 |
+| Own obstacle-free stage, dt unchanged | 3 | 90.39 (91.92 / 91.74 / 87.52) | 71.67 (80.71 / 69.61 / 64.69) | 2.39 | 2.12 |
+
+**Three forward speeds**
+- The actions become 3 forward speeds times 3 turns, 9 in all, with no stop. The expectation was that moving slowly could replace stopping.
+- Oscillation and far timeouts almost vanished, and final was the highest at the time at 87.60%, but best did not move, and nearly every failure became a crash (8.21%).
+
+**Crash penalty doubled**
 - The expectation was that the network would become more careful and crash less.
-- Crashes did not drop (8.21% to 8.98%), and final fell from 87.60% to 75.01%, with the third run at only 56.07%.
-- A likely cause is that a larger penalty widens the range of the TD target and makes learning less stable, while giving the network no new information about how to avoid obstacles. Crashes may come not from too small a penalty but from obstacles it cannot see, for example in the camera blind spot in the rear quarters.
+- Crashes did not drop (8.21% to 8.98%), the three runs of each overlap almost completely, and final fell from 87.60% to 75.01%.
+- The analysis in "The action-space limit" shows these crashes were mostly impossible to avoid physically. A penalty only makes the network more afraid of crashing without giving it a new way to avoid one, and a larger value widens the range of the TD target.
 
-**Replay buffer enlarged to 2,000,000**
-- The expectation was that a buffer holding about 312 training blocks would keep hard states from being flushed out, so late forgetting would drop.
-- final fell from 83.12% to 73.71% and best from 91.80% to 90.13%, while oscillation and far timeouts also rose.
-- The hypothesis that a short buffer causes forgetting is not supported. A likely cause is that a very large buffer holds a larger share of data from old policies, so the network learns an outdated behavior distribution.
+**replay buffer enlarged to 2,000,000**
+- The expectation was that hard states would stay in the buffer longer and late forgetting would shrink.
+- final fell from 83.12% to 73.71% (against the 3-run DDQN + SOFT of the time), so the hypothesis that a short buffer causes forgetting is not supported. A likely cause is that a very large buffer holds a larger share of data from outdated policies.
 
-## 9. Evidence on the two core problems
+**Control step dt 0.1 s**
+- Someone else reported that changing dt from 0.02 to 0.1 made results much more stable. dt is the interval between decisions. Every dt seconds the network looks at the state and picks an action, so a 20 s flight goes from 1,000 steps to 200.
+- best and final both rose, all 5 final values are above 90%, and the training instability is largely solved.
+- The reason is in "Why a longer control step trains more stably".
+
+**gamma 0.996**
+- gamma discounts once per step, so dt 0.1 stretches the horizon from about 1 s to about 5 s. This arm raised gamma to 0.996 at dt 0.02 to give the same horizon, to tell whether the effect of dt 0.1 comes from the longer horizon alone.
+- It got clearly worse, with oscillation at 14.03%. So the effect of dt 0.1 does not come from the horizon.
+
+**Own obstacle-free stage**
+- dt 0.1 cannot reuse the shared starting checkpoint trained at dt 0.02, so it trains its own stage with no obstacles. This arm also trains its own obstacle-free stage at dt 0.02, to rule out the different start.
+- It is worse than DDQN + SOFT, so the gain of dt 0.1 does not come from training its own first stage, and against this arm with the same start the effect of dt 0.1 is even larger.
+
+### Speed values of the three forward speeds and the control step
+
+| Experiment | Speeds (m/s) | dt (s) | best | final | Oscillation | Crash |
+|---|---|---|---|---|---|---|
+| Three forward speeds | 0.3 / 0.75 / 1.5 | 0.02 | 91.76 (94.38 / 92.04 / 88.86) | 87.60 (92.13 / 85.65 / 85.03) | 0.01 | 8.21 |
+| Slowest speed lowered | 0.15 / 0.45 / 1.5 | 0.02 | 94.42 (96.18 / 94.21 / 92.88) | 79.06 (94.23 / 89.18 / 53.77) | 0.08 | 5.37 |
+| Slowest speed lowered further | 0.075 / 0.3 / 1.5 | 0.02 | 94.44 (95.02 / 94.35 / 93.95) | 86.66 (90.41 / 86.97 / 82.60) | 0.36 | 4.44 |
+| Three forward speeds, gamma 0.996 | 0.3 / 0.75 / 1.5 | 0.02 | 90.38 (91.32 / 91.30 / 88.52) | 75.28 (86.07 / 81.65 / 58.11) | 0.09 | 9.41 |
+| Three forward speeds | 0.3 / 0.75 / 1.5 | 0.1 | 95.17 (95.71 / 95.08 / 94.71) | 94.19 (94.65 / 94.44 / 93.48) | 0.11 | 4.68 |
+| Q network with one output per action | 0.3 / 0.75 / 1.5 | 0.1 | 96.14 (97.42 / 95.61 / 95.40) | 95.89 (97.25 / 95.27 / 95.16) | 0.11 | 3.69 |
+| **C, slowest speed lowered plus dt 0.1** | 0.075 / 0.3 / 1.5 | 0.1 | **98.94** (99.25 / 98.90 / 98.68) | **97.93** (98.72 / 97.81 / 97.26) | 0.37 | 0.65 |
+
+- Lowering the slowest speed follows from the analysis in "The action-space limit". At dt 0.02 best rises by about 2.7 percentage points, but at p=0.23 against the original speeds and with no better final, so on its own it cannot be called better.
+- At dt 0.1, 0.075 / 0.3 / 1.5 m/s is far better than 0.3 / 0.75 / 1.5 m/s, at p=0.001 for best and p=0.003 for final, and the three runs do not overlap. The two changes together do far more than either alone.
+- This arm became the interim baseline, called C.
+- A Q network with one output per action helped, but much less. Its outputs grow with every combination of speeds and turns, so it will not be tried again.
+
+### The 2x2 on candidate C
+
+With C as the interim baseline, this compares 3 sectors and 4 sectors (see "The observation limit"), with and without the previous-action input (V2S).
+
+| | Without V2S | With V2S |
+|---|---|---|
+| 3 sectors | 98.94 (99.25 / 98.90 / 98.68) / 97.93 (98.72 / 97.81 / 97.26), crash 0.65 | 99.31 (99.59 / 99.30 / 99.05) / 98.43 (98.97 / 98.82 / 97.50), crash 0.61 |
+| 4 sectors | **99.50** (99.65 / 99.44 / 99.40) / **98.96** (99.50 / 98.72 / 98.65), crash 0.43 | 99.44 (99.52 / 99.44 / 99.35) / 98.91 (99.18 / 98.92 / 98.63), crash 0.50 |
+
+Each cell gives best, then final.
+
+| Comparison | p for best | p for final |
+|---|---|---|
+| 4 against 3 sectors, without V2S | 0.061 | 0.12 |
+| 4 against 3 sectors, with V2S | 0.52 | 0.42 |
+| With against without V2S, 3 sectors | 0.18 | 0.47 |
+| With against without V2S, 4 sectors | 0.56 | 0.89 |
+
+- All four cells are near 99%, and three runs cannot separate them statistically.
+- 4 sectors without V2S has the highest mean and the fewest crashes.
+- V2S helps a little with 3 sectors and not at all with 4. What V2S can add is breaking the left-right dithering, and 4 sectors already removes it.
+- With 4 sectors alone at the old speeds 0.3 / 0.75 / 1.5 m/s, best also rose from 95.17% to 99.26% (99.35 / 99.28 / 99.15), with 0.00% oscillation.
+
+## Limits built into the design
+
+Both problems in this section come from the action space and the input themselves. They have nothing to do with how well the network trains or how its parameters are set, and no amount of learning gets around them.
+- The action-space limit is about what the drone cannot do. Once it is too close to an obstacle, no control avoids it.
+- The observation limit is about what the drone cannot know. The input lacks the information it needs, so even the best policy can only guess, and a wrong guess crashes.
+
+### The action-space limit, a minimum turn radius that is too large
+
+With three forward speeds 0.3 / 0.75 / 1.5 m/s at dt 0.02, nearly every failure was a crash. The best checkpoint of the first training run was replayed on 2,000 layouts. Of its 121 crashes (6.05%), the last action was the slow speed in 97% and a left turn in 98%, and d_front on the step before impact had a median of 0.20 m.
+
+![Every crash ends in a slow left turn](docs/crash_turn_radius.png)
+
+- At 0.3 m/s and a turn rate of 0.8 rad/s, the smallest turn radius is 0.375 m.
+- The last unbroken run of slow left turns before impact lasted a median of 52 steps and began with a median surface gap of 0.46 m. The network did start turning early, it just could not turn tightly enough.
+- Holding a different action for a full circle from where that run began avoided every obstacle in the following share of crashes.
+
+| Held from the same position | Turn radius | Avoids every obstacle |
+|---|---|---|
+| Left at 0.3 m/s, the action taken | 0.375 m | 1% |
+| Left at 0.15 m/s | 0.19 m | 76% |
+| Left at 0.075 m/s | 0.09 m | 95% |
+| Right at 0.3 m/s | 0.375 m | 46% |
+
+- So the slowest speed is too fast. Crashes that cannot turn away come from a physical limit, not from a network that is not afraid enough of crashing, which also explains why doubling the crash penalty failed.
+- Lowering the speeds to 0.075 / 0.3 / 1.5 m/s brings the turn radius down to about 0.09 m. At dt 0.1, crashes fell from 4.68% to 0.65% and best rose from 95.17% to 98.94% (the C in "Speed values of the three forward speeds and the control step").
+
+### The observation limit, three sectors cannot tell left from right
+
+After dt 0.1, crashes looked different. In the arm with three speeds and dt 0.1 (95.17%), 91% of crashes happened during a right turn and the obstacle hit was on the left in 84%.
+
+![Crashes at the 0.1 s control step](docs/crash_front_sector.png)
+
+Replaying one of these crashes step by step showed the following.
+- At the start it is 1.03 m from the obstacle surface, enough room to turn away.
+- For the next 16 steps the network alternates left and right every step at the slow speed, while d_front shrinks from 0.88 m to 0.43 m. Meanwhile the right reading jumps between about 3.3 m and 10 m, because the heading moves only 4.6 degrees a step and another obstacle crosses the edge of the sector each time.
+- By the time it commits to turning right it is too close, and its left side grazes the obstacle.
+
+Across three training runs, 44%, 52% and 17% of crashes followed 4 or more left-right reversals in the last 2 s, and in 64% to 78% of those the surface gap at the first reversal was about 0.7 m, enough to turn away. At dt 0.02 only 21% of crashes were of this kind, with a gap of only 0.45 m at the first reversal.
+
+The cause is the input design.
+- The state is [d_front, d_left, d_right, dx, dy], and d_front is only the distance to the nearest obstacle within 36.5 degrees of the heading. An obstacle 10 degrees left or 10 degrees right of the heading gives the same d_front.
+- So when an obstacle sits right on the line between the drone and the target, turning left and turning right give almost the same state and almost the same Q-values. Any small change, such as a jump in a side reading, flips the choice, and the drone dithers on that line.
+- The right rule is to turn left when the obstacle is right of the heading and right when it is left of it. The network never receives which side the obstacle is on, so it cannot learn that rule.
+
+The fix splits the front sector into a front-left half (0 to +36.5 degrees) and a front-right half (0 to -36.5 degrees). Coverage stays the same and the state grows from 5 to 6 values. A depth camera already sees which side of the image an obstacle is on, so this is still information a real drone has.
+- This change alone raised best from 95.17% to 99.26%, with oscillation at 0.00%.
+- On C it reaches 99.50% (see "The 2x2 on candidate C").
+
+## Why a longer control step trains more stably
+
+A shorter control interval usually means faster reactions, but here the network must learn the value of each action by Q-learning, and too short an interval makes that harder.
+- At dt 0.02 an action lasts only 0.02 s, so even at 1.5 m/s the drone moves 3 cm, and turning left, turning right or going straight lead to almost the same outcome. The Q-value gap between actions scales roughly with dt, while the network's error in estimating Q-values does not shrink with it. Once the gap is smaller than the error, the argmax keeps flipping, which shows up as left-right swinging and as final falling. Tallec, Blier and Ollivier proved in *Making Deep Q-learning Methods Robust to Time Discretization* (ICML 2019) that Q-learning breaks down as dt goes to 0.
+- The +100 for reaching the target has to propagate back one TD update at a time, over 1,000 steps at dt 0.02 but only 200 at dt 0.1.
+- Only stretching the horizon made things worse (gamma 0.996 in "Single changes"), which fits the first point. With dt unchanged the Q-value gap stays just as small, and a longer horizon only makes the Q-values and their error larger together.
+- The cost is slower reactions, since a full-speed step covers 0.15 m. On a real drone the network can decide every 0.1 s (10 Hz) while the low-level flight controller still runs at 50 Hz, the same idea as the Atari DQN repeating each action for 4 frames.
+
+## Why baseline_v4 looks the way it does
+
+`baseline_v4` was built from `baseline_v3` by merging in the 4-sector, previous-action cell of "The 2x2 on candidate C", plus two fixes that do not change results.
+
+| Change | Before | After | Reason and evidence |
+|---|---|---|---|
+| Forward speeds | stop or 1.5 m/s | 0.075 / 0.3 / 1.5 m/s, no stop | Removes stopping and swinging ("Single changes"), and the smallest turn radius falls from 0.375 m to about 0.09 m ("The action-space limit") |
+| Control step | 0.02 s | 0.1 s | best and final both rise, all 5 final values above 90% ("Single changes", "Why a longer control step trains more stably") |
+| Front sector | 1 | front-left and front-right | Tells the network which side the obstacle is on, and oscillation falls to 0 ("The observation limit") |
+| Previous action (V2S) | none | one-hots of the previous turn and speed | See the discussion below |
+| Memory of the tie-break | curriculum.py held torch for the whole chain, about 1.3 GB | scored in a child process, about 11 MB | On two past tie-breaks the old and new code wrote identical records and checkpoints |
+| Parameters of the action mapping | `--forward_speed` and three others had no effect or mapped wrongly | the mapping uses the run's own config | Default values give the same raw actions as before, and no past experiment changed these parameters |
+
+On the 2x2 on C this setup reached 99.44% best and 98.91% final, against 92.20% and 81.28% for baseline_v3.
+
+**Whether to add V2S**
+
+This was my decision, and it differs from Claude's recommendation, so both sides' reasons are recorded here.
+
+My reasons
+- Adding V2S should be a safeguard. If the previous action is truly useless to the model, its weights should become small during training and do no harm.
+- It did not hurt with 4 sectors (99.44% against 99.50%, p=0.56).
+
+Claude's counterargument
+- Useless inputs are not pushed to 0 on their own. Training has no weight decay or L2 penalty, so nothing drives a weight toward 0. DQN targets are noisy, and an input that happens to correlate with that noise gets used.
+- Measurement agrees. In the three trained networks with 4 sectors and V2S, the norm of each first-layer weight column for a previous-action input grew from about 1.9 at initialization to 4.6 to 6.7, so the network does use these inputs.
+- The previous action is highly correlated with the current one, so the network easily learns the shortcut of repeating what it just did, and the state changes with the network's own decisions, which makes the training distribution less stable.
+- In this project V2S has caused harm before. Adding it to DDQN dropped best from 91.82% to 84.98%, and at best it made no difference.
+- The left-right dithering it would address is already solved by 4 sectors. Its cost is a state of 12 values instead of 6.
+- Where it may really be needed is an environment with inertia and delay, such as Isaac Lab or a real drone. In this 2D kinematic model every step switches straight to the new command, so the previous action carries no extra information.
+
+The final decision was to include V2S, and to test weight decay separately to see whether it really pushes useless weights down.
+
+## Evidence on the two core problems
 
 This section also includes the ablations from before baseline_v2. The numbers come from five sources.
 - "Stage 0" means no obstacles, 10 runs per arm.
@@ -340,9 +487,9 @@ This section also includes the ablations from before baseline_v2. The numbers co
 - "3 obstacles, seed 777" means 3 obstacles, seed 777, 10,000 layouts.
 - "5 obstacles" is the main evaluation of this document, seed 777 with 10,000 layouts.
 
-### 9.1 Swinging and stopping
+### Swinging and stopping
 
-The trajectories in 3.1 show that every failure other than a crash ends with the drone stopped, so the two problems can be treated together.
+The trajectories in "Failure types" show that every failure other than a crash ends with the drone stopped, so the two problems can be treated together.
 
 | Attempt | Setting | Effect on swinging and stopping |
 |---|---|---|
@@ -362,13 +509,17 @@ The trajectories in 3.1 show that every failure other than a crash ends with the
 | DDQN + three forward speeds | 5 obstacles | Oscillation 3.22% to 0.02%, far timeouts 2.30% to 0.08%, crashes 1.26% to 7.63% |
 | DDQN + SOFT + three forward speeds | 5 obstacles | Oscillation 0.01%, far timeouts 0%, crashes 8.21% |
 | Crash penalty doubled on top | 5 obstacles | Crashes do not drop (8.98%) |
+| Three forward speeds plus dt 0.1 | 5 obstacles | Oscillation 0.11%, crashes 4.68%, but about 40% of crashes come from dithering on the line ("The observation limit") |
+| **Slowest speed lowered to 0.075 m/s, plus dt 0.1 (C)** | 5 obstacles | Crashes fall to 0.65%, oscillation 0.37% |
+| **Front sector split in two** | 5 obstacles | Oscillation 0.00%, crashes 0.74% |
+| **C plus 4 sectors** | 5 obstacles | Oscillation 0.07%, crashes 0.43% |
 
 My current understanding has three parts.
 - A step spent stopped earns a progress reward of 0, while moving toward an obstacle risks a crash. So in front of an obstacle stopping is often the action with the highest Q-value, and once stopped the left and right turns score almost the same, so the drone swings in place.
-- Suppressing one symptom makes the problem reappear in another form. V9 turned swinging into stopping, and the time penalty and no hover turned stopping into crashes.
-- What actually helped was making the Q-values more accurate (DDQN, SOFT) and replacing stopping with moving slowly (three forward speeds).
+- Once stopping is removed, swinging and crashing have two separate causes. One is a slowest speed whose turn radius is too large to turn away ("The action-space limit"). The other is an input that cannot tell whether an obstacle is on the left or the right, so the drone hesitates on the line ("The observation limit").
+- Lowering the slowest speed and splitting the front sector each bring success to about 99%, and they handle different kinds of failure.
 
-### 9.2 Getting worse with more training (final far below best)
+### Getting worse with more training (final far below best)
 
 | Attempt | Setting | Change in final |
 |---|---|---|
@@ -387,37 +538,37 @@ My current understanding has three parts.
 | DDQN + SOFT plus three forward speeds | 5 obstacles | 83.12% to 87.60%, p=0.57 |
 | DDQN + SOFT with the buffer enlarged to 2,000,000 | 5 obstacles | 83.12% to 73.71%, p=0.32 |
 | DDQN + SOFT + three speeds with the crash penalty doubled | 5 obstacles | 87.60% to 75.01%, p=0.33 |
+| DDQN + SOFT with gamma 0.996 | 5 obstacles | 81.28% to 63.54%, p=0.025 |
+| **DDQN + SOFT with dt 0.1** | 5 obstacles | **81.28% to 92.59%**, p=0.065, all 5 runs above 90% |
+| C plus 4 sectors plus V2S (baseline_v4) | 5 obstacles | 98.91%, only 0.5 percentage points below best |
 
-My current understanding has four parts.
-- The changes that raised final the most all concern how stable the learning target is, such as a longer target copy interval and DDQN + SOFT. SOFT or DDQN alone did not help. The time penalty and 2 gradient updates per environment step also raised final, but the former increased oscillation and crashes.
-- Going from a buffer of 50,000 to 500,000 helped, and the hypothesis at the time was that a short buffer flushes out hard states so the network gradually forgets how to handle them (catastrophic forgetting). On DDQN + SOFT, however, going to 2,000,000 dropped final from 83.12% to 73.71%, so the hypothesis is not supported.
-- Doubling the crash penalty also lowered final. A larger penalty widens the range of the TD target, which may make learning less stable.
-- The highest final so far belongs to DDQN + SOFT + three forward speeds (87.60%), but it is not yet significant against DDQN + SOFT, and the cause of degrading with more training has not been fully found.
+My current understanding has three parts.
+- The changes that raised final the most all concern how stable the learning target is, such as a longer target copy interval and DDQN + SOFT. SOFT or DDQN alone did not help.
+- dt 0.1 is what brings final up to best, for the reason in "Why a longer control step trains more stably". A longer horizon by itself does not help.
+- With baseline_v4, best and final differ by only about 0.5 percentage points, so degrading with more training is largely solved.
 
-### 9.3 Experiments to run next
+## Conclusions so far
 
-- For crashes, nearly every failure after three speeds is a crash. A heavier crash penalty did not help, so the next step is to find where the crashes happen, for example whether they lie in the camera blind spot in the rear quarters, before deciding whether to change the input or the actions.
-- For degrading with more training, a larger buffer did not help, so learning-rate decay can be tried on DDQN + SOFT. It raised final by about 10 percentage points before baseline_v2, but it has not been tested on the new setup.
-- As a diagnostic, compare the mean Q-value and loss curves of runs that collapsed and runs that did not, to see whether a collapse comes from diverging Q-values or a drifting policy. These numbers are already in the tensorboard logs.
+1. **Oscillation** is solved. Three forward speeds removed stopping, a lower slowest speed lets the drone turn away in time, and splitting the front sector tells the network which side an obstacle is on. baseline_v4 oscillates in 0.06% of layouts.
+2. **Training instability** is largely solved. DDQN + SOFT brought final to 81% to 83%, dt 0.1 to 92.59%, and baseline_v4 reaches 98.91%.
+3. **Success with 5 obstacles** rose from 92.20% for baseline_v3 to 99.44% for baseline_v4.
+4. Doubling the crash penalty, enlarging the buffer to 2,000,000 and gamma 0.996 all made things worse and can be dropped. A Q network with one output per action helped only a little, and its outputs grow with every combination of actions, so it will not be tried again.
+5. The new and old curricula do not differ, so 1 → 2 → 3 → 5 stays.
 
-## 10. Conclusions so far
+## Limitations
 
-1. **On oscillation**, SOFT roughly halved oscillation with 5 obstacles (3.78% to 2.07%). DDQN also more than halved it with 3 obstacles (4.94% to 2.05%), but with 5 obstacles it only reached 3.22%. Three forward speeds bring oscillation and far timeouts close to 0 with 5 obstacles while keeping best at 91% to 92%, but crashes rise to about 8%.
-2. **On training instability**, DDQN + SOFT raised final from 64.15% to 83.12%. Adding three forward speeds brings it to 87.60%, the highest so far, though not yet significant. SOFT or DDQN alone did not improve final, and only the two together worked. The time penalty also raised final by about 9 percentage points, but oscillation and crashes increased.
-3. In practice, if the best checkpoint is selected, SOFT alone is best (93.17%). If training should stay stable to the end without swinging or stopping, DDQN + SOFT + three forward speeds is best.
-4. Doubling the crash penalty and enlarging the buffer to 2,000,000 both lowered final and can be dropped.
-5. The previous-action input lowered best in every version it was added to and can be dropped.
-6. The new and old curricula do not differ, and 1 → 2 → 3 → 5 stays.
+- Most arms have only 3 to 5 runs, and the four cells of the 2x2 on C cannot be told apart statistically.
+- Every result comes from a noise-free 2D kinematic environment. Real sensor noise and Isaac Lab dynamics are still untested.
+- dt 0.1 differs from the 0.02 s of the Isaac env. Moving to Isaac Lab means letting the network decide every 0.1 s while the low-level control holds the same action in between.
+- Contact is only tested at the end of each step. At dt 0.1 a full-speed step covers 0.15 m and can graze up to about 4 mm into the contact zone without counting as a crash, which is an accepted error.
+- 4 sectors and three forward speeds change the state and the action space, so these runs cannot start from the shared obstacle-free checkpoint and must train their own first stage with no obstacles.
 
-## 11. Limitations
+## Next steps
 
-- Most arms have only 3 to 5 runs, and most differences are not statistically significant, so they should be read as screening evidence.
-- The gap between best and final is still large, so selecting a checkpoint is still necessary.
-- All results come from a noise-free 2D kinematic environment. Real sensor noise and the dynamics of Isaac Lab have not been tested.
-- Three forward speeds change the action space, so those runs cannot reuse the shared obstacle-free checkpoint and train their own 0-obstacle stage.
-
-## 12. Next steps
-
-1. Decide whether DDQN + SOFT + three forward speeds becomes the next baseline.
-2. Continue with crashes and degrading with more training as in 9.3, which is the current priority for scheduling experiments.
-3. With the best setup, switch the input to RipZou's obstacle coordinates and run 3 times to compare sensor input with coordinate input directly.
+1. Test weight decay on baseline_v4, to see whether it pushes useless input weights down and how it affects stability.
+2. Try three methods from the literature that bring final closer to best. On 5 obstacles baseline_v4's best and final already differ by only about 0.5 percentage points, too little to measure, so they wait for the 8-obstacle benchmark and are listed in order of cost.
+   - Evaluate with the soft target network (Nikishin et al., 2018, and Anschel et al., *Averaged-DQN*, ICML 2017). The soft target is already a moving average of the online network's weights, so evaluating it can reduce the jumps between checkpoints. Training needs no change, only saving the target network as well.
+   - Add a LayerNorm after fc1 and fc2 of the Q network (Gallici et al., *Simplifying Deep Temporal Difference Learning*, ICLR 2025). The paper proves that LayerNorm with an L2 penalty makes TD learning converge, and the parallel sampling it relies on is close to the 64 environments run at once here.
+   - Replace Q-value regression with classification over a histogram, the HL-Gauss loss (Farebrother et al., *Stop Regressing*, ICML 2024), to soften noisy targets and a shifting distribution. It adds two hyperparameters, the number of bins and sigma, so it comes last.
+3. Before moving to Isaac Lab, run baseline_v4 in `camera` mode to confirm that emulated camera readings give the same results.
+4. With 99% at 5 obstacles, success no longer tells settings apart. A new layout rule always places the obstacle that blocks the direct path, and training 8 obstacles from baseline_v4's 5-obstacle checkpoint becomes the new benchmark.
