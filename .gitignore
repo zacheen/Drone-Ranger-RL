@@ -10,3 +10,9 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# added by guard_local_only_files.py
+Known_concern.md
+
+# added by guard_local_only_files.py
+notes/
