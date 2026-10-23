@@ -37,7 +37,7 @@ def first_episode_success(checkpoint, args, cfg, num_episodes, seed=VALIDATION_S
     for _ in range(env.max_steps):
         with torch.no_grad():
             action_idx = q_net(state).argmax(dim=-1)
-        obs, _, terminated, truncated, info = env.step(discrete_action_to_continuous(action_idx, "cpu"))
+        obs, _, terminated, truncated, info = env.step(discrete_action_to_continuous(action_idx, "cpu", cfg))
         state = info["reset_obs"]["dqn_state"]
         done = (terminated | truncated) & open_
         reached |= done & env._last_reached_flag

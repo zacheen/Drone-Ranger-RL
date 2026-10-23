@@ -50,7 +50,7 @@ for ep in range(args.num_episodes):
     for step in range(args.max_steps):
         with torch.no_grad():
             action_idx = q_net(state).argmax(dim=-1)
-        actions_continuous = discrete_action_to_continuous(action_idx, device)
+        actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         state = obs_dict["dqn_state"]
         # On the final step env.pos already holds the next episode's spawn point.

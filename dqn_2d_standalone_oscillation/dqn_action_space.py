@@ -25,6 +25,7 @@ every action (no more "leave it at the default and hope it's 0"), and
 by making the turn a choice of its own instead of overloading a
 forward-motion action with adaptive steering.
 """
+import functools
 import math
 
 import torch
@@ -46,24 +47,34 @@ def _arctanh(y):
     return 0.5 * math.log((1 + y) / (1 - y))
 
 
-# vx's squash formula is ((tanh(x)+1)/2)*max_xy_vel (forces non-negative,
-# see _apply_action in the env). Inverting it:
-#   to get vx=v, need x = arctanh(2*v/max_xy_vel - 1)
-_VX_RAW = [_arctanh(2 * f * _cfg.forward_speed / _cfg.max_xy_vel - 1) for f in SPEED_FRACTIONS]
-_YAW_TURN_RAW = _arctanh(_cfg.turn_rate / _cfg.max_yaw_rate)
+@functools.lru_cache(maxsize=None)
+def _raw_commands(forward_speed, turn_rate, max_xy_vel, max_yaw_rate):
+    """Raw vx for each speed and raw yaw rate for a turn. vx's squash formula is
+    ((tanh(x)+1)/2)*max_xy_vel (forces non-negative, see _apply_action in the env),
+    so vx=v needs x = arctanh(2*v/max_xy_vel - 1)."""
+    speeds = [f * forward_speed for f in SPEED_FRACTIONS]
+    if not all(0 < v < max_xy_vel for v in speeds):
+        raise ValueError(f"forward speeds {speeds} must lie strictly between 0 and max_xy_vel {max_xy_vel}")
+    if not 0 < turn_rate < max_yaw_rate:
+        raise ValueError(f"turn_rate {turn_rate} must lie strictly between 0 and max_yaw_rate {max_yaw_rate}")
+    return [_arctanh(2 * v / max_xy_vel - 1) for v in speeds], _arctanh(turn_rate / max_yaw_rate)
 
 
-def discrete_action_to_continuous(action_idx: torch.Tensor, device) -> torch.Tensor:
+def discrete_action_to_continuous(action_idx: torch.Tensor, device, cfg: DQNConfig = None) -> torch.Tensor:
     """action_idx: (N,) values 0 to NUM_ACTIONS-1. Returns (N,3) continuous action
     tensor, ready to pass to env.step(). No dy parameter needed --
     unlike v1, turn direction is a discrete choice the network makes
-    (left vs right), not something computed dynamically from dy's sign."""
+    (left vs right), not something computed dynamically from dy's sign.
+    Pass the run's cfg, the one its env squashes with. Without it the defaults
+    are used, which is right only for a run that kept them."""
+    cfg = cfg if cfg is not None else _cfg
+    vx_raw, yaw_turn_raw = _raw_commands(cfg.forward_speed, cfg.turn_rate, cfg.max_xy_vel, cfg.max_yaw_rate)
     n = action_idx.shape[0]
     out = torch.zeros(n, 3, device=device)
     speed, turn = action_idx // NUM_TURNS, action_idx % NUM_TURNS
-    out[:, 0] = torch.tensor(_VX_RAW, device=device)[speed]
-    out[turn == 1, 2] = _YAW_TURN_RAW
-    out[turn == 2, 2] = -_YAW_TURN_RAW
+    out[:, 0] = torch.tensor(vx_raw, device=device)[speed]
+    out[turn == 1, 2] = yaw_turn_raw
+    out[turn == 2, 2] = -yaw_turn_raw
     return out
 
 

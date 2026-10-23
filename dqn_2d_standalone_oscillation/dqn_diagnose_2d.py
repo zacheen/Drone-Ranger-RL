@@ -42,7 +42,7 @@ episodes = []
 while len(episodes) < args.num_episodes:
     with torch.no_grad():
         action_idx = q_net(state).argmax(dim=-1)
-    actions_continuous = discrete_action_to_continuous(action_idx, device)
+    actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
     obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
     done = terminated | truncated
     cum_reward += reward

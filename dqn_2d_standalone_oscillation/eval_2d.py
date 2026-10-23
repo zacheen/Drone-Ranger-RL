@@ -46,7 +46,7 @@ steps = torch.zeros(n, dtype=torch.long)
 for t in range(env.max_steps):
     with torch.no_grad():
         action_idx = q_net(state).argmax(dim=-1)
-    obs_dict, _, terminated, truncated, _ = env.step(discrete_action_to_continuous(action_idx, device))
+    obs_dict, _, terminated, truncated, _ = env.step(discrete_action_to_continuous(action_idx, device, cfg))
     state = obs_dict["dqn_state"]
     done = terminated | truncated
     if done.any():

@@ -171,7 +171,7 @@ for episode in range(args.num_episodes):
             explore_mask = torch.rand(args.num_envs, device=device) < epsilon
             action_idx = torch.where(explore_mask, random_action, greedy_action)
 
-        actions_continuous = discrete_action_to_continuous(action_idx, device)
+        actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
 
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         next_state = obs_dict["dqn_state"]
