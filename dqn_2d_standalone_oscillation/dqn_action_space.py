@@ -3,10 +3,10 @@ Shared action-space definition and Q-network for the DQN experiments --
 train_dqn.py / dqn_diagnose.py / watch_dqn.py / q_sweep.py all import
 from here instead of each keeping their own copy.
 
-Each action is a speed, stop or forward_speed, combined with a turn, none,
-left at +turn_rate or right at -turn_rate, six in all. The index is
-speed * NUM_TURNS + turn, and ACTION_NAMES lists them in that order. The
-Q-network scores the speed and the turn with separate heads and adds them.
+Each action is one of the SPEED_FRACTIONS of forward_speed, none of them
+zero, combined with a turn, none, left at +turn_rate or right at
+-turn_rate. The Q-network scores the speed and the turn with separate
+heads and adds them.
 
 Compared to the deprecated v1 (4-action) design: v1's "turn toward
 target" action set its raw vx input to 0, intending vx=0 -- but because
