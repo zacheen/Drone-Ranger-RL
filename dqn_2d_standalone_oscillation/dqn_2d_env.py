@@ -29,11 +29,12 @@ Its norm is the exact distance, with no sector and so no blind spot. An
 obstacle beyond MAX_SENSE_RANGE or parked leaves its slot all zeros, so the
 input size depends on k_nearest only and stays fixed across num_obstacles.
 
-num_obstacles=1..5 (Stage 1) uses the layout of the collaborator's commit
-1643e0e rather than the Isaac env's. The target is drawn exactly as in Stage 0,
-then circles of radius OBSTACLE_RADIUS are rejection-sampled in the same box,
-clear of the start and the target, with obstacle 0 forced onto the start-target
-segment so it has to be avoided. Touching an obstacle ends the episode as a crash.
+num_obstacles=1..8 (Stage 1) uses the layout of the collaborator's commit
+1643e0e rather than the Isaac env's. The target is drawn as in Stage 0 and
+redrawn until it lies MIN_START_TARGET_DIST from the start, then circles of
+radius OBSTACLE_RADIUS are rejection-sampled in the same box, clear of the start
+and the target, with obstacle 0 forced onto the start-target segment so it has
+to be avoided. Touching an obstacle ends the episode as a crash.
 
 Interface intentionally mirrors gymnasium's reset()/step() so train_dqn.py
 needs minimal changes to switch environments.
@@ -53,9 +54,9 @@ TARGET_POS_RANGE = 5.0   # start/target sampled uniformly in [-5, 5] on each axi
 REACHED_THRESHOLD = 0.75
 OUT_OF_BOUNDS_DIST = 40.0  # matches the real env's widened boundary
 
-# Obstacle roster and crash rule of commit 1643e0e, five circles and no boxes.
+# Obstacle shape and crash rule of commit 1643e0e, circles and no boxes, with room for eight.
 OBSTACLE_RADIUS = 0.5
-CYLINDER_RADII = (OBSTACLE_RADIUS,) * 5
+CYLINDER_RADII = (OBSTACLE_RADIUS,) * 8
 BOX_HALF_EXTENTS = ()
 NUM_CYLINDERS = len(CYLINDER_RADII)
 MAX_OBSTACLES = NUM_CYLINDERS + len(BOX_HALF_EXTENTS)
@@ -64,6 +65,9 @@ OBSTACLE_CLEARANCE = 0.5  # extra spawn gap around the start and the target
 START_KEEPOUT = OBSTACLE_RADIUS + DRONE_RADIUS + OBSTACLE_CLEARANCE  # min center distance from the start
 TARGET_KEEPOUT = OBSTACLE_RADIUS + REACHED_THRESHOLD + OBSTACLE_CLEARANCE  # min center distance from the target
 PLACEMENT_ATTEMPTS = 30  # a slot still invalid after this many draws stays parked
+# With obstacles, the target is redrawn until it lies this far from the start. Below about 2.77 m no
+# spot on the middle half of the segment clears both keepouts, so obstacle 0 could not block the path.
+MIN_START_TARGET_DIST = 3.0
 SENSOR_HALF_FOV = math.atan(TAN_HALF_FOV)  # half of the cameras' 73 deg HFOV
 # ground_truth sectors as (offset, half width): front-left, front-right, left, right. The front pair
 # covers the same 73 deg as one front sector, so only the side of a front obstacle is new.
@@ -133,24 +137,36 @@ class DroneNav2DEnv:
         self.step_count[env_ids] = 0
         self.prev_action[env_ids] = 0.0
         if self.num_obstacles > 0:
+            near = (self.target[env_ids] - self.pos[env_ids]).norm(dim=-1) < MIN_START_TARGET_DIST
+            while near.any():
+                ids = env_ids[near]
+                self.target[ids] = (torch.rand(len(ids), 2, device=self.device) * 2 - 1) * TARGET_POS_RANGE
+                near[near.clone()] = (self.target[ids] - self.pos[ids]).norm(dim=-1) < MIN_START_TARGET_DIST
             self._sample_obstacles(env_ids)
 
     def _sample_obstacles(self, env_ids):
         """Rejection-sample the active obstacle centers as commit 1643e0e does.
         A center must lie START_KEEPOUT from the start and TARGET_KEEPOUT from the
         target. Obstacle 0 is drawn on the middle half of the start-target segment,
-        within OBSTACLE_RADIUS of it sideways. A slot that fails every attempt stays
-        parked, so an episode can have fewer than num_obstacles obstacles."""
+        within OBSTACLE_RADIUS of it sideways, and only where it clears both keepouts,
+        so with MIN_START_TARGET_DIST it is always placed. Another slot that fails every
+        attempt stays parked, so an episode can have fewer than num_obstacles obstacles."""
         n, k, dev = len(env_ids), self.num_obstacles, self.device
         start, tgt = self.pos[env_ids], self.target[env_ids]
         seg = tgt - start
-        perp = torch.stack([-seg[:, 1], seg[:, 0]], dim=-1) / seg.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        length = seg.norm(dim=-1).clamp(min=1e-6)
+        perp = torch.stack([-seg[:, 1], seg[:, 0]], dim=-1) / length[:, None]
         out = self._parked_xy[:k].expand(n, -1, -1).clone()
         todo = torch.ones(n, k, dtype=torch.bool, device=dev)
         for _ in range(PLACEMENT_ATTEMPTS):
             cand = (torch.rand(n, k, 2, device=dev) * 2 - 1) * TARGET_POS_RANGE
-            along = torch.rand(n, device=dev) * 0.5 + 0.25
             lateral = (torch.rand(n, device=dev) * 2 - 1) * OBSTACLE_RADIUS
+            # The stretch of the segment, at this sideways offset, that clears both keepouts.
+            # The small margin keeps a point at the very edge from failing the >= test by rounding.
+            lo = ((START_KEEPOUT * 1.0001) ** 2 - lateral ** 2).sqrt() / length
+            hi = 1 - ((TARGET_KEEPOUT * 1.0001) ** 2 - lateral ** 2).sqrt() / length
+            lo, hi = lo.clamp(min=0.25), hi.clamp(max=0.75)
+            along = lo + torch.rand(n, device=dev) * (hi - lo).clamp(min=0)
             cand[:, 0] = start + seg * along[:, None] + perp * lateral[:, None]
             ok = (((cand - start[:, None]).norm(dim=-1) >= START_KEEPOUT)
                   & ((cand - tgt[:, None]).norm(dim=-1) >= TARGET_KEEPOUT))
