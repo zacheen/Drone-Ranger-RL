@@ -61,21 +61,47 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 # Experience replay
 # ══════════════════════════════════════════════════════════
 class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
+    """FIFO ring of preallocated CPU tensors holding the latest `capacity` transitions.
+
+    A deque of per-transition tuples cost about 1.2 KB per transition,
+    about 600 MB for a full 500k buffer, against about 200 bytes here.
+    """
+
+    def __init__(self, capacity, state_dim):
+        self.capacity = capacity
+        self.s = torch.zeros(capacity, state_dim)
+        self.a = torch.zeros(capacity, dtype=torch.long)
+        self.r = torch.zeros(capacity)
+        self.s_next = torch.zeros(capacity, state_dim)
+        self.done = torch.zeros(capacity)
+        self.pos = 0  # next slot to write
+        self.size = 0
 
     def push(self, s, a, r, s_next, done):
-        self.buffer.append((s, a, r, s_next, done))
+        """One row per env, written in env order, as consecutive appends to a deque would be."""
+        n = s.shape[0]
+        # Only the last `capacity` rows survive, as in a deque. Writing all of a larger batch would give
+        # index_put_ duplicate slots, whose result PyTorch leaves undefined.
+        first = max(n - self.capacity, 0)
+        slots = (self.pos + first + torch.arange(n - first)) % self.capacity
+        self.s[slots] = s[first:].cpu()
+        self.a[slots] = a[first:].cpu()
+        self.r[slots] = r[first:].cpu()
+        self.s_next[slots] = s_next[first:].cpu()
+        self.done[slots] = done[first:].cpu().float()
+        self.pos = (self.pos + n) % self.capacity
+        self.size = min(self.size + n, self.capacity)
 
     def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        s, a, r, s_next, done = zip(*batch)
-        return (torch.stack(s), torch.tensor(a, device=device),
-                torch.tensor(r, device=device, dtype=torch.float32),
-                torch.stack(s_next), torch.tensor(done, device=device, dtype=torch.float32))
+        # random.sample picks positions from the length alone, so drawing from range(size) and counting
+        # from the oldest slot selects the same transitions random.sample over a deque of them would.
+        oldest = (self.pos - self.size) % self.capacity
+        slots = (torch.tensor(random.sample(range(self.size), batch_size)) + oldest) % self.capacity
+        return (self.s[slots], self.a[slots].to(device), self.r[slots].to(device),
+                self.s_next[slots], self.done[slots].to(device))
 
     def __len__(self):
-        return len(self.buffer)
+        return self.size
 
 
 # ══════════════════════════════════════════════════════════
@@ -96,7 +122,7 @@ if args.resume_optimizer_from:
     print(f"[DQN] resumed optimizer state from {args.resume_optimizer_from}")
 elif args.resume_from:
     print("[DQN] resumed weights but NOT optimizer state (no --resume_optimizer_from given) -- Adam's per-parameter momentum starts fresh this run")
-replay_buffer = ReplayBuffer(cfg.replay_buffer_size)
+replay_buffer = ReplayBuffer(cfg.replay_buffer_size, env.state_dim)
 
 epsilon = cfg.resume_epsilon if args.resume_from else cfg.epsilon_start
 episode_returns = []
@@ -180,11 +206,7 @@ for episode in range(args.num_episodes):
         # bounds just cuts the episode off, so its target still bootstraps from next_state.
         terminal = terminated
 
-        for i in range(args.num_envs):
-            replay_buffer.push(
-                state[i].cpu(), action_idx[i].item(), reward[i].item(),
-                next_state[i].cpu(), terminal[i].item()
-            )
+        replay_buffer.push(state, action_idx, reward, next_state, terminal)
 
         if done.any():
             outcomes = env.last_outcomes()
