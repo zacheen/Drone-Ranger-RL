@@ -76,7 +76,7 @@ GROUND_TRUTH_SECTORS = ((SENSOR_HALF_FOV / 2, SENSOR_HALF_FOV / 2), (-SENSOR_HAL
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
 PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
-STALL_WINDOW = 20  # steps back to the pose the stall penalty compares against
+SIMILARITY_WINDOW = 20  # steps back to the pose the similarity penalty compares against
 
 # Episode outcomes, highest priority first, for a step that meets several conditions.
 OUTCOMES = ("reached", "contact_crash", "out_of_bounds", "timed_out")
@@ -109,10 +109,10 @@ class DroneNav2DEnv:
         self.yaw = torch.zeros(num_envs, device=device)          # (N,) radians
         self.target = torch.zeros(num_envs, 2, device=device)    # (N, 2)
         self.step_count = torch.zeros(num_envs, dtype=torch.long, device=device)
-        # Ring of the last STALL_WINDOW poses, slot step_count % STALL_WINDOW holding the pose STALL_WINDOW steps back.
-        self.pose_hist_pos = torch.zeros(num_envs, STALL_WINDOW, 2, device=device)
-        self.pose_hist_yaw = torch.zeros(num_envs, STALL_WINDOW, device=device)
-        self.stall_similarity = torch.zeros(num_envs, device=device)
+        # Ring of the last SIMILARITY_WINDOW poses, slot step_count % SIMILARITY_WINDOW holding the pose SIMILARITY_WINDOW steps back.
+        self.pose_hist_pos = torch.zeros(num_envs, SIMILARITY_WINDOW, 2, device=device)
+        self.pose_hist_yaw = torch.zeros(num_envs, SIMILARITY_WINDOW, device=device)
+        self.pose_similarity = torch.zeros(num_envs, device=device)
 
         self._circle_r = torch.tensor(CYLINDER_RADII, device=device)
         self._box_half = torch.tensor(BOX_HALF_EXTENTS, device=device).reshape(-1, 2)
@@ -143,7 +143,7 @@ class DroneNav2DEnv:
         self.prev_action[env_ids] = 0.0
         self.pose_hist_pos[env_ids] = self.pos[env_ids].unsqueeze(1)
         self.pose_hist_yaw[env_ids] = self.yaw[env_ids].unsqueeze(1)
-        self.stall_similarity[env_ids] = 0.0
+        self.pose_similarity[env_ids] = 0.0
         if self.num_obstacles > 0:
             near = (self.target[env_ids] - self.pos[env_ids]).norm(dim=-1) < MIN_START_TARGET_DIST
             while near.any():
@@ -251,7 +251,7 @@ class DroneNav2DEnv:
         self.pos = self.pos + torch.stack([vx_world, vy_world], dim=-1) * DT
 
         self.step_count += 1
-        self._update_stall_similarity()
+        self._update_pose_similarity()
         turn = torch.sign(yaw_rate_cmd)
         # Nearest speed, since the tanh squash returns each speed only to within float error.
         speeds = torch.tensor(SPEED_FRACTIONS, device=self.device) * self.cfg.forward_speed
@@ -305,16 +305,16 @@ class DroneNav2DEnv:
         # choose the next action from info["reset_obs"] (post-resample).
         return obs_dict, reward, terminated, truncated, {"reset_obs": reset_obs}
 
-    def _update_stall_similarity(self):
-        """Compare the pose just reached with the one STALL_WINDOW steps back, 1 for the same
+    def _update_pose_similarity(self):
+        """Compare the pose just reached with the one SIMILARITY_WINDOW steps back, 1 for the same
         position and heading, then store the current pose in its slot."""
         rows = torch.arange(self.num_envs, device=self.device)
-        slot = self.step_count % STALL_WINDOW
+        slot = self.step_count % SIMILARITY_WINDOW
         moved = (self.pos - self.pose_hist_pos[rows, slot]).norm(dim=-1)
         turned = self.yaw - self.pose_hist_yaw[rows, slot]
-        similarity = torch.exp(-moved / self.STALL_POS_SCALE) * (1 + torch.cos(turned)) / 2
-        # Steps before STALL_WINDOW have no pose that far back, their slots still hold the start pose.
-        self.stall_similarity = torch.where(self.step_count >= STALL_WINDOW, similarity, torch.zeros_like(similarity))
+        similarity = torch.exp(-moved / self.SIMILARITY_POS_SCALE) * (1 + torch.cos(turned)) / 2
+        # Steps before SIMILARITY_WINDOW have no pose that far back, their slots still hold the start pose.
+        self.pose_similarity = torch.where(self.step_count >= SIMILARITY_WINDOW, similarity, torch.zeros_like(similarity))
         self.pose_hist_pos[rows, slot] = self.pos
         self.pose_hist_yaw[rows, slot] = self.yaw
 
@@ -333,11 +333,11 @@ class DroneNav2DEnv:
     # keeps per-step reward in roughly [-0.225, +0.225], three times the
     # old rew_distance scale.
     K_PROGRESS = 0.15
-    # A stall that never ends costs about -5 discounted at gamma 0.98, far above the -50 crash.
-    STALL_PENALTY = -0.1
-    # Metres of travel over STALL_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
+    # Standing still forever costs about -5 discounted at gamma 0.98, far above the -50 crash.
+    SIMILARITY_PENALTY = -0.1
+    # Metres of travel over SIMILARITY_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
     # 0.15 m in that time, so crawling forward keeps about 5% of the penalty.
-    STALL_POS_SCALE = 0.05
+    SIMILARITY_POS_SCALE = 0.05
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
                          vx_signed=None, return_breakdown=False):
@@ -390,13 +390,13 @@ class DroneNav2DEnv:
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
 
-        rew_stall = self.stall_similarity * self.STALL_PENALTY
+        rew_similarity = self.pose_similarity * self.SIMILARITY_PENALTY
 
-        total = rew_progress + rew_reached + rew_crashed + rew_stall
+        total = rew_progress + rew_reached + rew_crashed + rew_similarity
         if return_breakdown:
             return total, {
                 "rew_progress": rew_progress, "rew_reached": rew_reached,
-                "rew_crashed": rew_crashed, "rew_stall": rew_stall, "yaw_cos": yaw_cos, "vx_signed": vx_signed,
+                "rew_crashed": rew_crashed, "rew_similarity": rew_similarity, "yaw_cos": yaw_cos, "vx_signed": vx_signed,
             }
         return total
 
