@@ -14,16 +14,16 @@ import argparse
 from dataclasses import dataclass, fields
 
 # The forward speeds the actions choose from, as fractions of forward_speed.
-# None is zero, so the drone cannot stop. At 0.2 the slowest turn radius was 0.375 m, too wide to
-# steer off an obstacle already close, and 0.05 brings it to about 0.09 m.
-SPEED_FRACTIONS = (0.05, 0.2, 1.0)
+# At 0.2 the slowest turn radius was 0.375 m, too wide to steer off an obstacle already close,
+# and 0.05 brings it to about 0.09 m. 0 adds a stop, so a turn in place drifts not at all.
+SPEED_FRACTIONS = (0.0, 0.05, 0.2, 1.0)
 
 
 @dataclass
 class DQNConfig:
     # ── Network architecture ──
     state_dim: int = 5
-    num_actions: int = 9  # len(SPEED_FRACTIONS) speeds times 3 turns
+    num_actions: int = 12  # len(SPEED_FRACTIONS) speeds times 3 turns
     hidden_dim: int = 128  # raised from 64 -- testing whether network
                             # capacity was the bottleneck (see experiment log)
 

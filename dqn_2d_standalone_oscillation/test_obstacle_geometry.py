@@ -352,18 +352,18 @@ def test_reset_obs_starts_next_episode():
 
 
 def test_prev_action_in_state():
-    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
+    env = E.DroneNav2DEnv(4, DQNConfig(), "cpu")
     obs, _ = env.reset()
     r = env.num_readings
     assert env.state_dim == r + E.PREV_ACTION_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
     env.pos[:] = 0.0
-    # slow straight, mid turning left, fast turning right
-    obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8]), "cpu"))
-    assert torch.equal(obs["dqn_state"][:, r:r + 3], torch.eye(3))
-    assert torch.equal(obs["dqn_state"][:, r + 3:r + 6], torch.eye(3))
+    # stop straight, slow turning left, mid turning right, fast straight
+    obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8, 9]), "cpu"))
+    assert torch.equal(obs["dqn_state"][:, r:r + 3], torch.eye(3)[[0, 1, 2, 0]])
+    assert torch.equal(obs["dqn_state"][:, r + 3:r + 7], torch.eye(4))
     expected = torch.tensor(E.SPEED_FRACTIONS) * env.cfg.forward_speed * E.DT
-    assert torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
+    assert env.pos[0].abs().max() == 0 and torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
     assert torch.equal(info["reset_obs"]["dqn_state"], obs["dqn_state"])
     print("  previous action: one-hot after a step, zeros at reset")
 
