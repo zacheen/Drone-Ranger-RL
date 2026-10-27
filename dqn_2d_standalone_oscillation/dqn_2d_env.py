@@ -77,6 +77,7 @@ DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
 PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
 STALL_WINDOW = 20  # steps back to the pose the stall penalty compares against
+STALL_OBS_DIM = 3  # body-frame dx, dy and heading change since that pose
 
 # Episode outcomes, highest priority first, for a step that meets several conditions.
 OUTCOMES = ("reached", "contact_crash", "out_of_bounds", "timed_out")
@@ -99,7 +100,7 @@ class DroneNav2DEnv:
         self.k_nearest = k_nearest
         # Networks are sized from this, not from cfg.state_dim, because coords mode changes it.
         self.num_readings = {"coords": 3 * k_nearest, "ground_truth": len(GROUND_TRUTH_SECTORS), "camera": 3}[distance_mode]
-        self.state_dim = self.num_readings + PREV_ACTION_DIM + 2
+        self.state_dim = self.num_readings + PREV_ACTION_DIM + STALL_OBS_DIM + 2
         # One-hot of the last turn (none, left, right) followed by a one-hot of the last speed,
         # all zeros on an episode's first step.
         self.prev_action = torch.zeros(num_envs, PREV_ACTION_DIM, device=device)
@@ -113,6 +114,9 @@ class DroneNav2DEnv:
         self.pose_hist_pos = torch.zeros(num_envs, STALL_WINDOW, 2, device=device)
         self.pose_hist_yaw = torch.zeros(num_envs, STALL_WINDOW, device=device)
         self.stall_similarity = torch.zeros(num_envs, device=device)
+        # What the state shows of the pose STALL_WINDOW steps back, or of the start pose before then,
+        # so the network can see the stall penalty coming.
+        self.stall_delta = torch.zeros(num_envs, STALL_OBS_DIM, device=device)
 
         self._circle_r = torch.tensor(CYLINDER_RADII, device=device)
         self._box_half = torch.tensor(BOX_HALF_EXTENTS, device=device).reshape(-1, 2)
@@ -144,6 +148,7 @@ class DroneNav2DEnv:
         self.pose_hist_pos[env_ids] = self.pos[env_ids].unsqueeze(1)
         self.pose_hist_yaw[env_ids] = self.yaw[env_ids].unsqueeze(1)
         self.stall_similarity[env_ids] = 0.0
+        self.stall_delta[env_ids] = 0.0
         if self.num_obstacles > 0:
             near = (self.target[env_ids] - self.pos[env_ids]).norm(dim=-1) < MIN_START_TARGET_DIST
             while near.any():
@@ -220,7 +225,7 @@ class DroneNav2DEnv:
         else:
             d = camera_readings(self.pos, self.yaw, *obstacles)
 
-        state = torch.cat([d, self.prev_action, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)  # [obstacle inputs..., prev action, dx, dy]
+        state = torch.cat([d, self.prev_action, self.stall_delta, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)
         return {"dqn_state": state}, dist
 
     def _nearest_obstacle_points(self, obstacles):
@@ -310,8 +315,13 @@ class DroneNav2DEnv:
         position and heading, then store the current pose in its slot."""
         rows = torch.arange(self.num_envs, device=self.device)
         slot = self.step_count % STALL_WINDOW
-        moved = (self.pos - self.pose_hist_pos[rows, slot]).norm(dim=-1)
+        offset = self.pos - self.pose_hist_pos[rows, slot]
+        moved = offset.norm(dim=-1)
         turned = self.yaw - self.pose_hist_yaw[rows, slot]
+        cos_yaw, sin_yaw = torch.cos(self.yaw), torch.sin(self.yaw)
+        self.stall_delta = torch.stack([offset[:, 0] * cos_yaw + offset[:, 1] * sin_yaw,
+                                        -offset[:, 0] * sin_yaw + offset[:, 1] * cos_yaw,
+                                        torch.atan2(torch.sin(turned), torch.cos(turned))], dim=-1)
         similarity = torch.exp(-moved / self.STALL_POS_SCALE) * (1 + torch.cos(turned)) / 2
         # Steps before STALL_WINDOW have no pose that far back, their slots still hold the start pose.
         self.stall_similarity = torch.where(self.step_count >= STALL_WINDOW, similarity, torch.zeros_like(similarity))

@@ -270,7 +270,7 @@ def test_outcome_priority():
 
 def test_coords_mode_hand_checked():
     env = E.DroneNav2DEnv(3, DQNConfig(), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=2)
-    assert env.state_dim == 8 + E.PREV_ACTION_DIM
+    assert env.state_dim == 8 + E.PREV_ACTION_DIM + E.STALL_OBS_DIM
     env.reset()
     env.obstacle_xy[:] = env._parked_xy
     env.obstacle_active[:] = True
@@ -355,7 +355,7 @@ def test_prev_action_in_state():
     env = E.DroneNav2DEnv(4, DQNConfig(), "cpu")
     obs, _ = env.reset()
     r = env.num_readings
-    assert env.state_dim == r + E.PREV_ACTION_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
+    assert env.state_dim == r + E.PREV_ACTION_DIM + E.STALL_OBS_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
     env.pos[:] = 0.0
     # stop straight, slow turning left, mid turning right, fast straight
@@ -375,7 +375,7 @@ def test_stall_penalty():
     # stop straight, stop turning left, slow straight
     actions = discrete_action_to_continuous(torch.tensor([0, 1, 3]), "cpu")
     for t in range(1, E.STALL_WINDOW + 2):
-        _, reward, terminated, truncated, _ = env.step(actions)
+        obs, reward, terminated, truncated, _ = env.step(actions)
         assert not (terminated | truncated).any()
         if t < E.STALL_WINDOW:
             assert (env.stall_similarity == 0).all()
@@ -385,8 +385,12 @@ def test_stall_penalty():
     assert torch.allclose(env.stall_similarity, expected, atol=1e-4)
     assert torch.allclose(env.last_reward_breakdown["rew_stall"], expected * env.STALL_PENALTY, atol=1e-5)
     assert math.isclose(reward[0].item(), env.STALL_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
+    r = env.num_readings + E.PREV_ACTION_DIM
+    seen = obs["dqn_state"][:, r:r + E.STALL_OBS_DIM]
+    assert torch.allclose(seen, torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, turned], [crawled, 0.0, 0.0]]), atol=1e-4), seen
     env._sample_positions(torch.tensor([0]))
     assert env.stall_similarity[0] == 0 and (env.pose_hist_pos[0] == env.pos[0]).all()
+    assert (env._get_obs()[0]["dqn_state"][0, r:r + E.STALL_OBS_DIM] == 0).all()
     print("  stall penalty: zero for the first window, then by position and heading against the pose a window back")
 
 
