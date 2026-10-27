@@ -270,7 +270,7 @@ def test_outcome_priority():
 
 def test_coords_mode_hand_checked():
     env = E.DroneNav2DEnv(3, DQNConfig(), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=2)
-    assert env.state_dim == 8 + E.PREV_ACTION_DIM + E.STALL_OBS_DIM
+    assert env.state_dim == 8 + E.PREV_ACTION_DIM + E.SIMILARITY_OBS_DIM
     env.reset()
     env.obstacle_xy[:] = env._parked_xy
     env.obstacle_active[:] = True
@@ -331,7 +331,7 @@ def test_pre_reset_state_and_breakdown():
     assert torch.allclose(end["target"][0], torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0]))
     assert not torch.equal(env.target[0], end["target"][0])  # resampled for the next episode
     assert env.last_reward_breakdown["rew_reached"].item() == 100.0
-    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed", "rew_stall")), reward)
+    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed", "rew_similarity")), reward)
     print("  pre-reset snapshot and reward breakdown: hold the finished episode's last step")
 
 
@@ -355,7 +355,7 @@ def test_prev_action_in_state():
     env = E.DroneNav2DEnv(4, DQNConfig(), "cpu")
     obs, _ = env.reset()
     r = env.num_readings
-    assert env.state_dim == r + E.PREV_ACTION_DIM + E.STALL_OBS_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
+    assert env.state_dim == r + E.PREV_ACTION_DIM + E.SIMILARITY_OBS_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
     env.pos[:] = 0.0
     # stop straight, slow turning left, mid turning right, fast straight
@@ -368,30 +368,30 @@ def test_prev_action_in_state():
     print("  previous action: one-hot after a step, zeros at reset")
 
 
-def test_stall_penalty():
+def test_pose_similarity_penalty():
     env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
     env.reset()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes in 21 steps
     # stop straight, stop turning left, slow straight
     actions = discrete_action_to_continuous(torch.tensor([0, 1, 3]), "cpu")
-    for t in range(1, E.STALL_WINDOW + 2):
+    for t in range(1, E.SIMILARITY_WINDOW + 2):
         obs, reward, terminated, truncated, _ = env.step(actions)
         assert not (terminated | truncated).any()
-        if t < E.STALL_WINDOW:
-            assert (env.stall_similarity == 0).all()
-    turned = E.STALL_WINDOW * env.cfg.turn_rate * E.DT
-    crawled = E.STALL_WINDOW * E.SPEED_FRACTIONS[1] * env.cfg.forward_speed * E.DT
-    expected = torch.tensor([1.0, (1 + math.cos(turned)) / 2, math.exp(-crawled / env.STALL_POS_SCALE)])
-    assert torch.allclose(env.stall_similarity, expected, atol=1e-4)
-    assert torch.allclose(env.last_reward_breakdown["rew_stall"], expected * env.STALL_PENALTY, atol=1e-5)
-    assert math.isclose(reward[0].item(), env.STALL_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
+        if t < E.SIMILARITY_WINDOW:
+            assert (env.pose_similarity == 0).all()
+    turned = E.SIMILARITY_WINDOW * env.cfg.turn_rate * E.DT
+    crawled = E.SIMILARITY_WINDOW * E.SPEED_FRACTIONS[1] * env.cfg.forward_speed * E.DT
+    expected = torch.tensor([1.0, (1 + math.cos(turned)) / 2, math.exp(-crawled / env.SIMILARITY_POS_SCALE)])
+    assert torch.allclose(env.pose_similarity, expected, atol=1e-4)
+    assert torch.allclose(env.last_reward_breakdown["rew_similarity"], expected * env.SIMILARITY_PENALTY, atol=1e-5)
+    assert math.isclose(reward[0].item(), env.SIMILARITY_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
     r = env.num_readings + E.PREV_ACTION_DIM
-    seen = obs["dqn_state"][:, r:r + E.STALL_OBS_DIM]
+    seen = obs["dqn_state"][:, r:r + E.SIMILARITY_OBS_DIM]
     assert torch.allclose(seen, torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, turned], [crawled, 0.0, 0.0]]), atol=1e-4), seen
     env._sample_positions(torch.tensor([0]))
-    assert env.stall_similarity[0] == 0 and (env.pose_hist_pos[0] == env.pos[0]).all()
-    assert (env._get_obs()[0]["dqn_state"][0, r:r + E.STALL_OBS_DIM] == 0).all()
-    print("  stall penalty: zero for the first window, then by position and heading against the pose a window back")
+    assert env.pose_similarity[0] == 0 and (env.pose_hist_pos[0] == env.pos[0]).all()
+    assert (env._get_obs()[0]["dqn_state"][0, r:r + E.SIMILARITY_OBS_DIM] == 0).all()
+    print("  similarity penalty: zero for the first window, then by position and heading against the pose a window back")
 
 
 if __name__ == "__main__":
@@ -401,7 +401,7 @@ if __name__ == "__main__":
                  test_contact_crash_and_obs_wiring, test_front_halves_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
-                 test_prev_action_in_state, test_stall_penalty):
+                 test_prev_action_in_state, test_pose_similarity_penalty):
         print(test.__name__)
         test()
     print("all tests passed")
