@@ -331,7 +331,7 @@ def test_pre_reset_state_and_breakdown():
     assert torch.allclose(end["target"][0], torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0]))
     assert not torch.equal(env.target[0], end["target"][0])  # resampled for the next episode
     assert env.last_reward_breakdown["rew_reached"].item() == 100.0
-    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed")), reward)
+    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed", "rew_stall")), reward)
     print("  pre-reset snapshot and reward breakdown: hold the finished episode's last step")
 
 
@@ -368,6 +368,28 @@ def test_prev_action_in_state():
     print("  previous action: one-hot after a step, zeros at reset")
 
 
+def test_stall_penalty():
+    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
+    env.reset()
+    env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes in 21 steps
+    # stop straight, stop turning left, slow straight
+    actions = discrete_action_to_continuous(torch.tensor([0, 1, 3]), "cpu")
+    for t in range(1, E.STALL_WINDOW + 2):
+        _, reward, terminated, truncated, _ = env.step(actions)
+        assert not (terminated | truncated).any()
+        if t < E.STALL_WINDOW:
+            assert (env.stall_similarity == 0).all()
+    turned = E.STALL_WINDOW * env.cfg.turn_rate * E.DT
+    crawled = E.STALL_WINDOW * E.SPEED_FRACTIONS[1] * env.cfg.forward_speed * E.DT
+    expected = torch.tensor([1.0, (1 + math.cos(turned)) / 2, math.exp(-crawled / env.STALL_POS_SCALE)])
+    assert torch.allclose(env.stall_similarity, expected, atol=1e-4)
+    assert torch.allclose(env.last_reward_breakdown["rew_stall"], expected * env.STALL_PENALTY, atol=1e-5)
+    assert math.isclose(reward[0].item(), env.STALL_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
+    env._sample_positions(torch.tensor([0]))
+    assert env.stall_similarity[0] == 0 and (env.pose_hist_pos[0] == env.pos[0]).all()
+    print("  stall penalty: zero for the first window, then by position and heading against the pose a window back")
+
+
 if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
@@ -375,7 +397,7 @@ if __name__ == "__main__":
                  test_contact_crash_and_obs_wiring, test_front_halves_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
-                 test_prev_action_in_state):
+                 test_prev_action_in_state, test_stall_penalty):
         print(test.__name__)
         test()
     print("all tests passed")
