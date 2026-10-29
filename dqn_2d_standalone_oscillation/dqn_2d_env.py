@@ -322,7 +322,7 @@ class DroneNav2DEnv:
         self.pose_delta = torch.stack([offset[:, 0] * cos_yaw + offset[:, 1] * sin_yaw,
                                         -offset[:, 0] * sin_yaw + offset[:, 1] * cos_yaw,
                                         torch.atan2(torch.sin(turned), torch.cos(turned))], dim=-1)
-        similarity = torch.exp(-moved / self.SIMILARITY_POS_SCALE) * (1 + torch.cos(turned)) / 2
+        similarity = torch.exp(-moved / self.SIMILARITY_POS_SCALE - self.pose_delta[:, 2].abs() / self.SIMILARITY_YAW_SCALE)
         # Steps before SIMILARITY_WINDOW have no pose that far back, their slots still hold the start pose.
         self.pose_similarity = torch.where(self.step_count >= SIMILARITY_WINDOW, similarity, torch.zeros_like(similarity))
         self.pose_hist_pos[rows, slot] = self.pos
@@ -348,6 +348,10 @@ class DroneNav2DEnv:
     # Metres of travel over SIMILARITY_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
     # 0.15 m in that time, so crawling forward keeps about 5% of the penalty.
     SIMILARITY_POS_SCALE = 0.05
+    # Radians of heading change over SIMILARITY_WINDOW steps that cut the similarity to 1/e. Steepest at no
+    # change, so one 0.08 rad turn step already drops it to 0.67, while (1 + cos) / 2 was flat there and a
+    # stopped drone swinging left and right saw almost no gain from turning one way.
+    SIMILARITY_YAW_SCALE = 0.2
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
                          vx_signed=None, return_breakdown=False):

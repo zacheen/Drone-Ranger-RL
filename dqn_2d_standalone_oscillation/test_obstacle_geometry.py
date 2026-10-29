@@ -381,7 +381,7 @@ def test_pose_similarity_penalty():
             assert (env.pose_similarity == 0).all()
     turned = E.SIMILARITY_WINDOW * env.cfg.turn_rate * E.DT
     crawled = E.SIMILARITY_WINDOW * E.SPEED_FRACTIONS[1] * env.cfg.forward_speed * E.DT
-    expected = torch.tensor([1.0, (1 + math.cos(turned)) / 2, math.exp(-crawled / env.SIMILARITY_POS_SCALE)])
+    expected = torch.tensor([1.0, math.exp(-turned / env.SIMILARITY_YAW_SCALE), math.exp(-crawled / env.SIMILARITY_POS_SCALE)])
     assert torch.allclose(env.pose_similarity, expected, atol=1e-4)
     assert torch.allclose(env.last_reward_breakdown["rew_similarity"], expected * env.SIMILARITY_PENALTY, atol=1e-5)
     assert math.isclose(reward[0].item(), env.SIMILARITY_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
