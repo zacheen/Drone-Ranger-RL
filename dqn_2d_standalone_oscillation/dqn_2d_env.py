@@ -343,8 +343,8 @@ class DroneNav2DEnv:
     # keeps per-step reward in roughly [-0.225, +0.225], three times the
     # old rew_distance scale.
     K_PROGRESS = 0.15
-    # Standing still forever costs about -5 discounted at gamma 0.98, far above the -50 crash.
-    SIMILARITY_PENALTY = -0.1
+    # Standing still forever costs about -15 discounted at gamma 0.98, still above the -50 crash.
+    SIMILARITY_PENALTY = -0.3
     # Metres of travel over SIMILARITY_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
     # 0.15 m in that time, so crawling forward keeps about 5% of the penalty.
     SIMILARITY_POS_SCALE = 0.05
