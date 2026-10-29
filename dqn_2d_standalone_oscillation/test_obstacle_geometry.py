@@ -191,8 +191,11 @@ def test_layout_invariants():
         torch.manual_seed(0)
         env = E.DroneNav2DEnv(2000, DQNConfig(), "cpu", num_obstacles=k)
         obs, _ = env.reset()
-        # Obstacles are drawn after the start, target and heading, which follow Stage 0 exactly.
-        assert torch.equal(env.pos, stage0.pos) and torch.equal(env.target, stage0.target) and torch.equal(env.yaw, stage0.yaw)
+        # The start and heading follow Stage 0 exactly, and so does every target already far enough away.
+        assert torch.equal(env.pos, stage0.pos) and torch.equal(env.yaw, stage0.yaw)
+        far = (stage0.target - stage0.pos).norm(dim=-1) >= E.MIN_START_TARGET_DIST
+        assert torch.equal(env.target[far], stage0.target[far]) and (~far).any()
+        assert ((env.target - env.pos).norm(dim=-1) >= E.MIN_START_TARGET_DIST).all(), f"k={k} target too close"
         active = env.obstacle_active
         assert not active[:, k:].any(), f"k={k} active beyond num_obstacles"
         parked_far = (env.obstacle_xy - env.pos.unsqueeze(1)).norm(dim=-1) > 100
@@ -202,13 +205,13 @@ def test_layout_invariants():
         assert ((centers - env.pos[:, None]).norm(dim=-1)[placed] >= E.START_KEEPOUT - 1e-5).all(), f"k={k} start keepout"
         assert ((centers - env.target[:, None]).norm(dim=-1)[placed] >= E.TARGET_KEEPOUT - 1e-5).all(), f"k={k} target keepout"
         assert (centers[placed].abs() <= E.TARGET_POS_RANGE + E.OBSTACLE_RADIUS + 1e-5).all(), f"k={k} outside the box"
-        # Obstacle 0, when placed, sits on the middle half of the start-target segment.
+        # Obstacle 0 is always placed, on the middle half of the start-target segment.
         seg = env.target - env.pos
         rel = centers[:, 0] - env.pos
         along = (rel * seg).sum(-1) / (seg * seg).sum(-1)
         side = (rel[:, 0] * seg[:, 1] - rel[:, 1] * seg[:, 0]).abs() / seg.norm(dim=-1)
-        on = placed[:, 0]
-        assert ((along[on] >= 0.25 - 1e-5) & (along[on] <= 0.75 + 1e-5)).all() and (side[on] <= E.OBSTACLE_RADIUS + 1e-5).all(), f"k={k} obstacle 0 off the path"
+        assert placed[:, 0].all(), f"k={k} obstacle 0 parked"
+        assert ((along >= 0.25 - 1e-5) & (along <= 0.75 + 1e-5)).all() and (side <= E.OBSTACLE_RADIUS + 1e-5).all(), f"k={k} obstacle 0 off the path"
         cx, cr, bx, bh = _env_obstacles(env)
         assert (og.obstacle_surface_distance(env.pos, cx, cr, bx, bh) > E.DRONE_RADIUS).all(), f"k={k} spawn in contact"
         assert torch.isfinite(obs["dqn_state"]).all()
