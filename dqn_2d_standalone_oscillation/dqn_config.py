@@ -48,6 +48,10 @@ class DQNConfig:
     target_tau: float = 0.0005
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
+    # Proportional prioritized replay (Schaul et al. 2016). per_alpha 0 keeps uniform sampling.
+    per_alpha: float = 0.0
+    per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
+    per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
