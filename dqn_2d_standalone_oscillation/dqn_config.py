@@ -56,6 +56,10 @@ class DQNConfig:
     # except the reaching and crashing steps, so long stuck stretches do not crowd the buffer.
     replay_full_steps: int = 200
     replay_late_fraction: float = 0.1
+    # Proportional prioritized replay (Schaul et al. 2016). per_alpha 0 keeps uniform sampling.
+    per_alpha: float = 0.0
+    per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
+    per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
