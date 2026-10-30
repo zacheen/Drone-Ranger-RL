@@ -52,6 +52,10 @@ class DQNConfig:
     # explore_max_hold 1 gives plain per-step epsilon-greedy.
     explore_hold_mu: float = 2.0
     explore_max_hold: int = 100
+    # Transitions past step replay_full_steps of their episode are stored with probability replay_late_fraction,
+    # except the reaching and crashing steps, so long stuck stretches do not crowd the buffer.
+    replay_full_steps: int = 200
+    replay_late_fraction: float = 0.1
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

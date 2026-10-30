@@ -199,6 +199,7 @@ for episode in range(args.num_episodes):
 
         actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
 
+        step_in_episode = env.step_count + 1  # read before step(), which resets the count of ended envs
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         next_state = obs_dict["dqn_state"]
         done = terminated | truncated
@@ -206,7 +207,9 @@ for episode in range(args.num_episodes):
         # bounds just cuts the episode off, so its target still bootstraps from next_state.
         terminal = terminated
 
-        replay_buffer.push(state, action_idx, reward, next_state, terminal)
+        keep = ((step_in_episode <= cfg.replay_full_steps) | terminal
+                | (torch.rand(args.num_envs, device=device) < cfg.replay_late_fraction))
+        replay_buffer.push(state[keep], action_idx[keep], reward[keep], next_state[keep], terminal[keep])
 
         if done.any():
             outcomes = env.last_outcomes()
