@@ -31,6 +31,7 @@ from torch.utils.tensorboard import SummaryWriter
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
 from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
+from exploration import HeldRandomExploration
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -125,6 +126,7 @@ elif args.resume_from:
 replay_buffer = ReplayBuffer(cfg.replay_buffer_size, env.state_dim)
 
 epsilon = cfg.resume_epsilon if args.resume_from else cfg.epsilon_start
+explorer = HeldRandomExploration(args.num_envs, cfg.num_actions, cfg.explore_hold_mu, cfg.explore_max_hold, device)
 episode_returns = []
 
 run_name = args.run_name or time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -193,9 +195,7 @@ for episode in range(args.num_episodes):
         with torch.no_grad():
             q_values = q_net(state)
             greedy_action = q_values.argmax(dim=-1)
-            random_action = torch.randint(0, cfg.num_actions, (args.num_envs,), device=device)
-            explore_mask = torch.rand(args.num_envs, device=device) < epsilon
-            action_idx = torch.where(explore_mask, random_action, greedy_action)
+            action_idx = explorer.select(greedy_action, epsilon)
 
         actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
 

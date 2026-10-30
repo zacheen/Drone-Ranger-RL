@@ -48,6 +48,10 @@ class DQNConfig:
     target_tau: float = 0.0005
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
+    # Exploratory actions are held for a zeta(mu) number of steps, at most explore_max_hold.
+    # explore_max_hold 1 gives plain per-step epsilon-greedy.
+    explore_hold_mu: float = 2.0
+    explore_max_hold: int = 100
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
