@@ -232,7 +232,7 @@ def test_contact_crash_and_obs_wiring():
     env.yaw[3] = math.pi / 2
     env.obstacle_xy[3, 1] = torch.tensor([0.0, 3.0])   # ahead only because of the heading
     d = env._get_obs()[0]["dqn_state"]
-    c = E.CAMERA_BINS // 2  # the middle front bin, centered on the heading
+    c = E.CAMERA_BINS  # the front-left camera's rightmost bin, whose right edge is the heading
     assert abs(d[2, c].item() - 4.5) < 1e-4 and abs(d[3, c].item() - 2.5) < 1e-4
     _, reward, terminated, _, _ = env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(4, -1))  # full-speed forward
     assert terminated.tolist() == [True, True, False, False]
@@ -252,9 +252,10 @@ def test_camera_bins_tile_each_camera():
     worst = 0.0
     for _ in range(4):
         scene = _random_scene(200, gen)
-        whole = og.obstacle_sector_distances(*scene, E.SENSOR_HALF_FOV, MAX_RANGE)
+        whole = og.obstacle_sector_distances(*scene, E.SENSOR_HALF_FOV, MAX_RANGE,
+                                             sectors=tuple((cam, E.SENSOR_HALF_FOV) for cam in E.CAMERA_OFFSETS))
         binned = og.obstacle_sector_distances(*scene, E.SENSOR_HALF_FOV, MAX_RANGE, sectors=E.GROUND_TRUTH_SECTORS)
-        worst = max(worst, (binned.view(-1, 3, n).amin(dim=-1) - whole).abs().max().item())
+        worst = max(worst, (binned.view(-1, len(E.CAMERA_OFFSETS), n).amin(dim=-1) - whole).abs().max().item())
     assert worst < 1e-4, f"bin minimum and single sector differ by {worst:.5f} m"
     print(f"  camera bins: tile each camera, minimum matches the single sector within {worst:.1e} m")
 
@@ -270,12 +271,10 @@ def test_front_bins_tell_the_side():
     env.obstacle_xy[0, 1] = torch.tensor([2.0 * math.cos(a), 2.0 * math.sin(a)])    # left of the heading
     env.obstacle_xy[1, 1] = torch.tensor([2.0 * math.cos(a), -2.0 * math.sin(a)])   # right of the heading
     d = env._get_obs()[0]["dqn_state"][:, :len(E.GROUND_TRUTH_SECTORS)]
-    # Bins run right to left, so with 5 bins of 14.6 deg, +20 deg falls in bin 3 and -20 deg in bin 1.
-    assert abs(d[0, 3].item() - 1.5) < 1e-4 and d[0, 1].item() > 1.5
-    assert abs(d[1, 1].item() - 1.5) < 1e-4 and d[1, 3].item() > 1.5
-    front, left, right = d[1].view(3, E.CAMERA_BINS)
-    mirrored = torch.cat([front.flip(0), right.flip(0), left.flip(0)])
-    assert torch.allclose(d[0], mirrored, atol=1e-5)
+    # Bins run right to left from -73 deg in steps of 14.6 deg, so +20 deg falls in bin 6 and -20 deg in bin 3.
+    assert abs(d[0, 6].item() - 1.5) < 1e-4 and d[0, 3].item() > 1.5
+    assert abs(d[1, 3].item() - 1.5) < 1e-4 and d[1, 6].item() > 1.5
+    assert torch.allclose(d[0], d[1].flip(0), atol=1e-5)
     print("  front bins: the nearest reading moves to the side the obstacle is on")
 
 

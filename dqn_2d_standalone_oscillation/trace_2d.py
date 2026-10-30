@@ -12,7 +12,7 @@ import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork, ACTION_NAMES
-from dqn_2d_env import CAMERA_BINS, add_env_args, env_from_args
+from dqn_2d_env import CAMERA_BINS, CAMERA_NAMES, add_env_args, env_from_args
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--checkpoint", type=str, required=True)
@@ -45,7 +45,7 @@ print()
 
 # Coords mode shows its nearest slot in place of the sector readings.
 reading_names = {"coords": ("s1_x", "s1_y", "v1"), "camera": ("d_front", "d_left", "d_right"),
-                 "ground_truth": tuple(f"{cam}_{b}" for cam in "flr" for b in range(CAMERA_BINS))}[args.distance_mode]
+                 "ground_truth": tuple(f"{cam}_{b}" for cam in CAMERA_NAMES for b in range(CAMERA_BINS))}[args.distance_mode]
 header = (f"{'step':>5} {'action':>10} {'pos_x':>7} {'pos_y':>7} {'d(pos)':>7} "
           + "".join(f"{name:>7} " for name in reading_names) +
           f"{'dist':>7} {'yaw_cos':>8} {'vx':>7} {'r_progress':>10} {'r_total':>8}")
