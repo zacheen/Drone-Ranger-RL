@@ -48,6 +48,10 @@ class DQNConfig:
     target_tau: float = 0.0005
     resume_epsilon: float = 0.3  # epsilon restart value on --resume_from
                                   # (neither 1.0 nor epsilon_min)
+    # Transitions past step replay_full_steps of their episode are stored with probability replay_late_fraction,
+    # except the reaching and crashing steps, so long stuck stretches do not crowd the buffer.
+    replay_full_steps: int = 200
+    replay_late_fraction: float = 0.1
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

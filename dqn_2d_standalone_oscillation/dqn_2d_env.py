@@ -48,7 +48,9 @@ from obstacle_geometry import _nearest_surface, obstacle_sector_distances, obsta
 
 DT = 0.1  # seconds per control step, 10 Hz instead of Isaac Lab's 50 Hz
 MAX_SENSE_RANGE = FAR_CLIP  # both distance modes cap at the cameras' far clip
-EPISODE_LENGTH_S = 20.0  # matches the real env's episode_length_s
+# Three times the real env's 20 s episode_length_s. At 20 s about seven in eight evaluation timeouts
+# reached the target when given 60 s.
+EPISODE_LENGTH_S = 60.0
 TARGET_POS_RANGE = 5.0   # start/target sampled uniformly in [-5, 5] on each axis
 REACHED_THRESHOLD = 0.75
 OUT_OF_BOUNDS_DIST = 40.0  # matches the real env's widened boundary
