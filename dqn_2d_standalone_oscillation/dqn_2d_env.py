@@ -259,13 +259,14 @@ class DroneNav2DEnv:
         # tunnel through an obstacle because a step is at most max_xy_vel * DT
         # (0.25 m by default), thinner than any obstacle.
         if self.num_obstacles == 0:
-            crashed = torch.zeros_like(reached)
+            surface_dist = torch.full_like(dist, math.inf)
         else:
-            crashed = obstacle_surface_distance(
+            surface_dist = obstacle_surface_distance(
                 self.pos,
                 self.obstacle_xy[:, :NUM_CYLINDERS], self._circle_r,
                 self.obstacle_xy[:, NUM_CYLINDERS:], self._box_half,
-            ) < DRONE_RADIUS
+            )
+        crashed = surface_dist < DRONE_RADIUS
 
         terminated = reached | crashed
         truncated = out_of_bounds | timed_out
@@ -277,7 +278,8 @@ class DroneNav2DEnv:
         self._last_out_of_bounds = out_of_bounds
 
         reward, self.last_reward_breakdown = self._compute_reward(
-            dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, return_breakdown=True)
+            dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, surface_dist=surface_dist,
+            return_breakdown=True)
 
         # The episode's true last state, which the resample below overwrites
         # for every env that just finished.
@@ -313,7 +315,7 @@ class DroneNav2DEnv:
     K_PROGRESS = 0.15
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
-                         vx_signed=None, return_breakdown=False):
+                         vx_signed=None, surface_dist=None, return_breakdown=False):
         """Redesigned reward, replacing the additive rew_distance +
         rew_yaw_aligned + rew_action_rate combination (which had two
         separate, independently-farmable exploits diagnosed via
@@ -362,12 +364,19 @@ class DroneNav2DEnv:
         rew_progress = vx_signed * yaw_cos * self.K_PROGRESS
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
+        # surface_dist is from the drone's center, so contact is at DRONE_RADIUS, not 0.
+        if surface_dist is None or self.cfg.proximity_penalty == 0:
+            rew_proximity = torch.zeros_like(rew_progress)
+        else:
+            closeness = (1 - (surface_dist - DRONE_RADIUS) / self.cfg.proximity_margin).clamp(0, 1)
+            rew_proximity = -self.cfg.proximity_penalty * closeness
 
-        total = rew_progress + rew_reached + rew_crashed
+        total = rew_progress + rew_reached + rew_crashed + rew_proximity
         if return_breakdown:
             return total, {
                 "rew_progress": rew_progress, "rew_reached": rew_reached,
-                "rew_crashed": rew_crashed, "yaw_cos": yaw_cos, "vx_signed": vx_signed,
+                "rew_crashed": rew_crashed, "rew_proximity": rew_proximity,
+                "yaw_cos": yaw_cos, "vx_signed": vx_signed,
             }
         return total
 

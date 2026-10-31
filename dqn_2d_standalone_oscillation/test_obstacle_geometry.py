@@ -241,6 +241,23 @@ def test_contact_crash_and_obs_wiring():
     print("  crash detection and obstacle readings through step(): ok")
 
 
+def test_proximity_penalty():
+    """The penalty ramps from 0 at proximity_margin of clearance to proximity_penalty at contact, and is off by default."""
+    for cfg, expected in ((DQNConfig(proximity_penalty=0.2, proximity_margin=0.3), [-0.1, 0.0, -0.2]),
+                          (DQNConfig(), [0.0, 0.0, 0.0])):
+        env = E.DroneNav2DEnv(3, cfg, "cpu", num_obstacles=1)
+        env.reset()
+        env.obstacle_xy[:] = env._parked_xy
+        env.pos[:] = 0.0
+        env.yaw[:] = 0.0
+        env.target[:] = torch.tensor([-20.0, 0.0])
+        # Beside where the 0.25 m step ends, r=0.5, surface 0.35, 0.6 and 0.05 m from the drone's center.
+        env.obstacle_xy[:, 0] = torch.tensor([[0.25, 0.85], [0.25, 1.1], [0.25, 0.55]])
+        env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(3, -1))
+        assert torch.allclose(env.last_reward_breakdown["rew_proximity"], torch.tensor(expected), atol=1e-5)
+    print("  proximity penalty: linear inside the margin, capped at contact, zero by default")
+
+
 def test_front_halves_tell_the_side():
     """A front obstacle off the heading by 20 deg shows only in the front half on its side."""
     env = E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=5)
@@ -331,7 +348,8 @@ def test_pre_reset_state_and_breakdown():
     assert torch.allclose(end["target"][0], torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0]))
     assert not torch.equal(env.target[0], end["target"][0])  # resampled for the next episode
     assert env.last_reward_breakdown["rew_reached"].item() == 100.0
-    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed")), reward)
+    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed",
+                                                                      "rew_proximity")), reward)
     print("  pre-reset snapshot and reward breakdown: hold the finished episode's last step")
 
 
@@ -372,7 +390,8 @@ if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_front_halves_tell_the_side, test_outcome_priority,
+                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_front_halves_tell_the_side,
+                 test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
                  test_prev_action_in_state):

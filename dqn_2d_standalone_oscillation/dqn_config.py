@@ -52,6 +52,10 @@ class DQNConfig:
     # explore_max_hold 1 gives plain per-step epsilon-greedy.
     explore_hold_mu: float = 2.0
     explore_max_hold: int = 100
+    # Per-step penalty for passing near an obstacle, rising linearly from 0 at proximity_margin metres
+    # of clearance short of contact to proximity_penalty at contact. 0 leaves the reward unchanged.
+    proximity_penalty: float = 0.0
+    proximity_margin: float = 0.3
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
