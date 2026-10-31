@@ -60,6 +60,10 @@ class DQNConfig:
     per_alpha: float = 0.0
     per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
     per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
+    # Per-step penalty for passing near an obstacle, rising linearly from 0 at proximity_margin metres
+    # of clearance short of contact to proximity_penalty at contact. 0 leaves the reward unchanged.
+    proximity_penalty: float = 0.0
+    proximity_margin: float = 0.3
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
