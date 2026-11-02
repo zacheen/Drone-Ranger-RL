@@ -64,6 +64,8 @@ class DQNConfig:
     # of clearance short of contact to proximity_penalty at contact. 0 leaves the reward unchanged.
     proximity_penalty: float = 0.0
     proximity_margin: float = 0.3
+    # Decoupled weight decay through AdamW. 0 keeps plain Adam.
+    weight_decay: float = 0.0
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

@@ -10,12 +10,15 @@ are integrated directly from the same discrete action -> (vx, yaw_rate)
 mapping used by the real environment. The control step is 0.1 s here, five
 times Isaac Lab's 0.02 s (sim.dt=1/100 * decimation=2).
 
-With distance_mode="ground_truth" (the default) the front sector is split in two halves:
-    state = [d_front_left, d_front_right, d_left, d_right, dx, dy]
-each an exact distance to the nearest obstacle surface in that sector
-(obstacle_geometry.py), so the state says on which side of the heading a
-front obstacle lies. With distance_mode="camera" the state keeps the real
-environment's layout, state = [d_front, d_left, d_right, dx, dy], with what
+With distance_mode="ground_truth" (the default) two cameras turned half their
+73 deg to either side cover 146 deg ahead with no gap, each split into
+CAMERA_BINS equal bins:
+    state = [fr_0..fr_4, fl_0..fl_4, dx, dy]
+each an exact distance to the nearest obstacle surface in that bin
+(obstacle_geometry.py), ordered from the right edge of the view to its left
+edge, so a gap between two obstacles shows as a far bin between near ones.
+Nothing more than 73 deg off the heading is seen. With distance_mode="camera"
+the state keeps the real environment's layout, state = [d_front, d_left, d_right, dx, dy], with what
 the Isaac env's three depth cameras would report (camera_emulation.py). With
 num_obstacles=0 (Stage 0) both modes read 10.0 (max sensing range) in every
 reading, what the real environment's cameras report when nothing is in view.
@@ -71,10 +74,16 @@ PLACEMENT_ATTEMPTS = 30  # a slot still invalid after this many draws stays park
 # spot on the middle half of the segment clears both keepouts, so obstacle 0 could not block the path.
 MIN_START_TARGET_DIST = 3.0
 SENSOR_HALF_FOV = math.atan(TAN_HALF_FOV)  # half of the cameras' 73 deg HFOV
-# ground_truth sectors as (offset, half width): front-left, front-right, left, right. The front pair
-# covers the same 73 deg as one front sector, so only the side of a front obstacle is new.
-GROUND_TRUTH_SECTORS = ((SENSOR_HALF_FOV / 2, SENSOR_HALF_FOV / 2), (-SENSOR_HALF_FOV / 2, SENSOR_HALF_FOV / 2),
-                        (math.pi / 2, SENSOR_HALF_FOV), (-math.pi / 2, SENSOR_HALF_FOV))
+CAMERA_BINS = 5
+# Front-right then front-left, so the bins run right to left across both cameras. An offset of exactly
+# SENSOR_HALF_FOV puts their shared edge on the heading.
+CAMERA_OFFSETS = (-SENSOR_HALF_FOV, SENSOR_HALF_FOV)
+CAMERA_NAMES = ("fr", "fl")
+# ground_truth sectors as (offset, half width), CAMERA_BINS per camera from its right edge to its left edge.
+# The bins of one camera tile exactly its 73 deg, so their minimum is that camera's single-sector reading.
+GROUND_TRUTH_SECTORS = tuple(
+    (cam + SENSOR_HALF_FOV * (2 * b + 1 - CAMERA_BINS) / CAMERA_BINS, SENSOR_HALF_FOV / CAMERA_BINS)
+    for cam in CAMERA_OFFSETS for b in range(CAMERA_BINS))
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
 PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
