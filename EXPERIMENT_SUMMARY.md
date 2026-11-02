@@ -551,6 +551,11 @@ baseline_v4 has no stop, because removing it ended the stopping and swinging (se
 
 **The trade-off accepted.** The stop line is kept even though no stop arm beats the arm without stop at the same settings by more than the spread between runs, and its finals swing more. baseline_stop_v5 reached 99.45% and 98.35%, against 99.38% and 99.19%† for V4LONGG99 without stop.
 
+**The stop line stays off `main`.** It is not yet clear that any change can solve the stalling and swinging that come with the stop action, so the stop line is not merged back into `main`.
+- `main` follows the baseline without stop, `baseline_v6` today.
+- The stop line keeps its own branches, `baseline_v4_stop`, `baseline_stop_v5` and `baseline_stop_v6`, and its experiments branch from the latest of them.
+- Both lines keep being updated, and this summary covers both.
+
 ## Experiments with the stop action, from baseline_v4_stop to baseline_stop_v5
 
 `baseline_v4_stop` is baseline_v4.1 plus the new layout and a stop as a fourth speed, so the speeds are 0, 0.075, 0.3 and 1.5 m/s times 3 turns, 12 actions. All finals in this table are the mean of the last 3 checkpoints.
