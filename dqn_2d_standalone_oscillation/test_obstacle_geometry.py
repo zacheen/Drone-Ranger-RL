@@ -232,8 +232,8 @@ def test_contact_crash_and_obs_wiring():
     env.yaw[3] = math.pi / 2
     env.obstacle_xy[3, 1] = torch.tensor([0.0, 3.0])   # ahead only because of the heading
     d = env._get_obs()[0]["dqn_state"]
-    # Dead ahead lies on the edge both front halves share, so both read it.
-    assert all(abs(d[2, c].item() - 4.5) < 1e-4 and abs(d[3, c].item() - 2.5) < 1e-4 for c in (0, 1))
+    c = E.CAMERA_BINS  # the front-left camera's rightmost bin, whose right edge is the heading
+    assert abs(d[2, c].item() - 4.5) < 1e-4 and abs(d[3, c].item() - 2.5) < 1e-4
     _, reward, terminated, _, _ = env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(4, -1))  # full-speed forward
     assert terminated.tolist() == [True, True, False, False]
     assert (reward[:2] < -49).all() and (reward[2:] > -1).all()
@@ -241,8 +241,27 @@ def test_contact_crash_and_obs_wiring():
     print("  crash detection and obstacle readings through step(): ok")
 
 
-def test_front_halves_tell_the_side():
-    """A front obstacle off the heading by 20 deg shows only in the front half on its side."""
+def test_camera_bins_tile_each_camera():
+    """Each camera's bins tile its 73 deg, so their minimum is the single-sector reading."""
+    n = E.CAMERA_BINS
+    for k, cam in enumerate(E.CAMERA_OFFSETS):
+        edges = [(c - w, c + w) for c, w in E.GROUND_TRUTH_SECTORS[k * n:(k + 1) * n]]
+        assert abs(edges[0][0] - (cam - E.SENSOR_HALF_FOV)) < 1e-12 and abs(edges[-1][1] - (cam + E.SENSOR_HALF_FOV)) < 1e-12
+        assert all(abs(edges[b][1] - edges[b + 1][0]) < 1e-12 for b in range(n - 1))
+    gen = torch.Generator().manual_seed(1)
+    worst = 0.0
+    for _ in range(4):
+        scene = _random_scene(200, gen)
+        whole = og.obstacle_sector_distances(*scene, E.SENSOR_HALF_FOV, MAX_RANGE,
+                                             sectors=tuple((cam, E.SENSOR_HALF_FOV) for cam in E.CAMERA_OFFSETS))
+        binned = og.obstacle_sector_distances(*scene, E.SENSOR_HALF_FOV, MAX_RANGE, sectors=E.GROUND_TRUTH_SECTORS)
+        worst = max(worst, (binned.view(-1, len(E.CAMERA_OFFSETS), n).amin(dim=-1) - whole).abs().max().item())
+    assert worst < 1e-4, f"bin minimum and single sector differ by {worst:.5f} m"
+    print(f"  camera bins: tile each camera, minimum matches the single sector within {worst:.1e} m")
+
+
+def test_front_bins_tell_the_side():
+    """A front obstacle off the heading by 20 deg is nearest in the front bin on its side."""
     env = E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=5)
     env.reset()
     env.obstacle_xy[:] = env._parked_xy
@@ -251,11 +270,12 @@ def test_front_halves_tell_the_side():
     a = math.radians(20.0)
     env.obstacle_xy[0, 1] = torch.tensor([2.0 * math.cos(a), 2.0 * math.sin(a)])    # left of the heading
     env.obstacle_xy[1, 1] = torch.tensor([2.0 * math.cos(a), -2.0 * math.sin(a)])   # right of the heading
-    d = env._get_obs()[0]["dqn_state"]
-    assert abs(d[0, 0].item() - 1.5) < 1e-4 and d[0, 1].item() > 1.5
-    assert abs(d[1, 1].item() - 1.5) < 1e-4 and d[1, 0].item() > 1.5
-    assert torch.allclose(d[0, 2:4], d[1, 2:4].flip(0))  # mirrored layouts give mirrored side readings
-    print("  front halves: the reading moves to the side the obstacle is on")
+    d = env._get_obs()[0]["dqn_state"][:, :len(E.GROUND_TRUTH_SECTORS)]
+    # Bins run right to left from -73 deg in steps of 14.6 deg, so +20 deg falls in bin 6 and -20 deg in bin 3.
+    assert abs(d[0, 6].item() - 1.5) < 1e-4 and d[0, 3].item() > 1.5
+    assert abs(d[1, 3].item() - 1.5) < 1e-4 and d[1, 6].item() > 1.5
+    assert torch.allclose(d[0], d[1].flip(0), atol=1e-5)
+    print("  front bins: the nearest reading moves to the side the obstacle is on")
 
 
 def test_outcome_priority():
@@ -372,7 +392,8 @@ if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_front_halves_tell_the_side, test_outcome_priority,
+                 test_contact_crash_and_obs_wiring, test_camera_bins_tile_each_camera,
+                 test_front_bins_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
                  test_prev_action_in_state):

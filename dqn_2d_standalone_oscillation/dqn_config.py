@@ -52,6 +52,8 @@ class DQNConfig:
     # explore_max_hold 1 gives plain per-step epsilon-greedy.
     explore_hold_mu: float = 2.0
     explore_max_hold: int = 100
+    # Decoupled weight decay through AdamW. 0 keeps plain Adam.
+    weight_decay: float = 0.0
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

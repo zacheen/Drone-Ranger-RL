@@ -15,15 +15,21 @@ import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import QNetwork, ACTION_NAMES, NUM_TURNS
-from dqn_2d_env import PREV_ACTION_DIM
+from dqn_2d_env import GROUND_TRUTH_SECTORS, PREV_ACTION_DIM
 
 
-def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float, device: str):
+SWEEP_READINGS = {"ground_truth": len(GROUND_TRUTH_SECTORS), "camera": 3}
+
+
+def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float, device: str,
+          distance_mode: str = "ground_truth"):
     weights = torch.load(checkpoint_path, map_location=device)
-    # Sized from the checkpoint, since the ground-truth state carries four readings and the camera state three.
+    # Checked against the stated mode rather than inferred from the size, because a coords checkpoint
+    # can have the same input count as a ground_truth one and needs zeros, not 10.0, for an empty scene.
     num_readings = weights["fc1.weight"].shape[1] - PREV_ACTION_DIM - 2
-    if num_readings not in (3, 4):
-        raise SystemExit(f"q_sweep supports sector-reading checkpoints only, got {num_readings} obstacle inputs")
+    if num_readings != SWEEP_READINGS[distance_mode]:
+        raise SystemExit(f"distance_mode {distance_mode} has {SWEEP_READINGS[distance_mode]} obstacle inputs, "
+                         f"the checkpoint has {num_readings}")
     q_net = QNetwork(state_dim=num_readings + PREV_ACTION_DIM + 2, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
     q_net.load_state_dict(weights)
     q_net.to(device)
@@ -81,8 +87,10 @@ if __name__ == "__main__":
     parser.add_argument("--angle_step_deg", type=float, default=5.0,
                          help="angular sweep step size in degrees, default 5")
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--distance_mode", choices=tuple(SWEEP_READINGS), default="ground_truth",
+                        help="obstacle inputs the checkpoint was trained with, coords is not supported")
     add_config_args(parser)
     args = parser.parse_args()
     cfg: DQNConfig = config_from_args(args)
 
-    sweep(args.checkpoint, cfg, args.distances, args.angle_step_deg, args.device)
+    sweep(args.checkpoint, cfg, args.distances, args.angle_step_deg, args.device, args.distance_mode)
