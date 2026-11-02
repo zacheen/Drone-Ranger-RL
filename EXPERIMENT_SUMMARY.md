@@ -1,6 +1,6 @@
 # DQN Drone Obstacle Avoidance, Experiment Summary
 
-Compiled on 2026-10-22. Every number comes from the 2D kinematic environment in `dqn_2d_standalone_oscillation`, and nothing has been tested in Isaac Lab yet.
+Compiled on 2026-10-22 and brought up to baseline_v6 on 2026-11-02. Every number comes from the 2D kinematic environment in `dqn_2d_standalone_oscillation`, and nothing has been tested in Isaac Lab yet.
 
 ## Research goals
 
@@ -18,7 +18,8 @@ Compiled on 2026-10-22. Every number comes from the 2D kinematic environment in 
 
 1. Fix oscillation, meaning swinging left and right in front of an obstacle, spinning in place, or hovering stuck.
 2. Fix training instability, meaning a policy that learns well midway and then gets worse.
-3. Raise the success rate with 5 obstacles, where baseline_v4 reaches 99.44%.
+3. Raise the success rate on the harder benchmark of 8 obstacles, where baseline_v4.2 and baseline_stop_v5 both pass 99% best and 98% final (see "The 8-obstacle benchmark").
+4. Learn to turn around and leave a gap that is too narrow, which is why the stop action came back (see "Why the stop action came back").
 
 ## How my environment differs from RipZou's
 
@@ -27,8 +28,8 @@ RipZou's `dqn_2d_standalone` on `origin/main` feeds the true obstacle coordinate
 | Item | RipZou (`dqn_2d_standalone`) | Mine (`dqn_2d_standalone_oscillation`) |
 |---|---|---|
 | Obstacle input | Relative center coordinates and radius (ox, oy, r) of the K nearest visible obstacles | Distance to the nearest obstacle surface in each of three 73 degree sectors, front, left and right |
-| State | [dx, dy, ox_1, oy_1, r_1, ...], divided by 10 | [d_front, d_left, d_right, dx, dy], with the front sector split into front-left and front-right and the previous action added from baseline_v4 (see "Why baseline_v4 looks the way it does") |
-| Field of view | Every direction within 10 m | Only the three camera sectors, with a blind spot behind, matching the three depth cameras of the Isaac env |
+| State | [dx, dy, ox_1, oy_1, r_1, ...], divided by 10 | [d_front, d_left, d_right, dx, dy], with the front sector split into front-left and front-right and the previous action added from baseline_v4 (see "Why baseline_v4 looks the way it does"), and the sector readings replaced by 10 camera bins from baseline_v6 (see "Why baseline_v6 looks the way it does") |
+| Field of view | Every direction within 10 m | Only the three camera sectors, with a blind spot behind, matching the three depth cameras of the Isaac env. From baseline_v6 two cameras cover the front 146 degrees and nothing to the sides |
 | Noise | None | None (`ground_truth` mode), with a separate `camera` mode that emulates camera readings |
 | Obstacle shape and layout | Circles of radius 0.5 m, rejection-sampled in a 10 m box, with the first one placed on the straight line from start to target | The same, deliberately reusing RipZou's commit 1643e0e so that both versions use the same obstacle environment |
 
@@ -39,9 +40,14 @@ I also tried `coords` mode, which feeds the coordinates of the nearest obstacle 
 - A checkpoint is saved every 100 episodes, and the one with the highest success on the validation set (seed 1000, 1,000 layouts) is kept. Ties are broken on seed 2000.
 - The reported numbers come from 10,000 layouts of seed 777, which was never used to choose anything.
 - **best** is the success rate of the selected checkpoint and stands for what the training can reach.
-- **final** is the success rate of the last checkpoint and stands for stability. The larger the gap between the two, the more the policy degraded late in training.
+- **final** stands for stability. The larger the gap between best and final, the more the policy degraded late in training.
+  - Up to 2026-10-31 it was the success rate of the last checkpoint alone.
+  - From 2026-10-31 it is the mean of the last 3 checkpoints, for a 3000-episode stage `ep2800`, `ep2900` and `final`. V4LONGG99PROX r3 scored 99.5 on validation at ep2800, and its last checkpoint alone landed on a dip at 96.62, so one checkpoint could make a stable run look failed.
+  - Arms started before that date keep the last checkpoint alone unless they were rescored for a comparison. Every table from "The 8-obstacle benchmark" on marks such a final with †.
+- From baseline_v4 on an arm passes when its mean best reaches 99% and its mean final reaches 98% at 8 obstacles. Success already reaches 99%, so a control arm can no longer separate settings. This tells whether a setting is good enough, not whether it is better than another.
+- Every comparison from "The hard group, flights through a gap" on also lists the success rate on the episodes that flew through a gap, because the overall rate averages those away.
 - Success often swings by 30 to 40 percentage points between checkpoints, so every arm runs at least 3 times and comparisons use Welch's t-test.
-- One episode in this document is one training block, in which 64 environments each run 100 steps. A real flight lasts at most 20 seconds, which is 1,000 steps at the 0.02 s control step and 200 steps at the 0.1 s step of baseline_v4.
+- One episode in this document is one training block, in which 64 environments each run 100 steps. A real flight lasts at most 20 seconds, which is 1,000 steps at the 0.02 s control step and 200 steps at the 0.1 s step of baseline_v4. The stop line runs 60 s episodes, 600 steps, from baseline_stop_v5 (see "Why baseline_stop_v5 looks the way it does").
 
 ### Failure types
 
@@ -478,6 +484,250 @@ Claude's counterargument
 
 The final decision was to include V2S, and to test weight decay separately to see whether it really pushes useless weights down.
 
+## The 8-obstacle benchmark
+
+With 5 obstacles every arm close to baseline_v4 reached about 99%, so success could no longer tell settings apart. Two changes made the task harder.
+
+**A layout that always places the path-blocking obstacle.** The old placement code drew obstacle 0 on the straight line from start to target and dropped it after 30 rejected draws.
+- On seed 3000 with 10,000 layouts per obstacle count, only about 73% of layouts placed every obstacle, and the one missing was always obstacle 0. So about 27% of layouts had nothing blocking the direct path.
+- The new rule needs a start-to-target distance of at least 3.0 m when obstacles exist and draws obstacle 0 only from the part of the line where it fits, so every obstacle is placed at 5 and at 8 obstacles.
+- With 8 obstacles, 58.9% of the new layouts have overlapping obstacles and 51.3% have a gap narrower than the drone. None is unreachable.
+- Even if all the easy layouts had succeeded, 99% overall still means at least 98.6% on the layouts with obstacle 0, so the conclusions drawn on the old layout stand. Numbers from the two layouts are still never mixed in one table.
+
+**8 obstacles as the last stage.** Every arm from here on trains 0, 1, 2, 3, 5 and then 8 obstacles, the last stage 3000 episodes, and is judged at 8 obstacles.
+
+baseline_v4 itself on this procedure (V4_0TO8) reached 98.97% best and 97.87%† final, and continuing its 5-obstacle runs to 8 (V4_8) reached 99.02% and 98.56%†.
+
+## Experiments from baseline_v4 to baseline_v4.2 and baseline_v6, without the stop action
+
+All numbers below are at 8 obstacles on the new layout, 3 runs each. † marks a final that is still the last checkpoint alone.
+
+| Arm | Change | best | final | Pass |
+|---|---|---|---|---|
+| V4_0TO8 | baseline_v4 on the new procedure | 98.97 | 97.87† | no |
+| V4WD_8 | AdamW weight decay 1e-4 | 99.04 | 98.27† | yes |
+| V4LRD | learning rate held for the first half of each stage, then lowered linearly to 1/10 | 98.76 | 98.62† | no |
+| V4LRD8L | V4LRD with the 8-obstacle stage at 4500 episodes | 98.73 | 98.80† | no |
+| V4TP | -0.01 every step | 98.47 | 98.30† | no |
+| V4TO | -50 on the step an episode times out | 98.95 | 98.44† | no |
+| **V4EZ** | temporally-extended epsilon-greedy, which became baseline_v4.2 | **99.13** | **98.58** | **yes** |
+| V4LONG | V4EZ with 60 s episodes and the replay thinned past step 200 | 98.99 | 98.28† | no |
+| V4LONGPER | V4LONG with prioritized replay in place of the thinning | 99.19 | 98.45† | yes |
+| V4LONGG99 | V4LONG with gamma 0.99 | 99.38 | 99.19† | yes |
+| V4LONGG99PROX | V4LONGG99 with a proximity penalty | 99.72 | 98.31† | yes |
+| V4EZG99 | V4EZ with gamma 0.99 | 99.30 | 89.88† | no |
+| V4EZPROX | V4EZ with a proximity penalty | 99.16 | 93.68 | no |
+| V4EZG99PROX | V4EZ with gamma 0.99 and a proximity penalty | 99.51 | 98.17 | yes |
+
+- **Weight decay passed**, and after it the user judged the weight-decay experiments done.
+- **The stage-local learning-rate decay** led every stage up to 5 obstacles, 99.41% best and 99.32% final at 5, but missed at 8 with 1.12% crashes, and a longer last stage did not help.
+- **A time or timeout penalty changed nothing.** At gamma 0.98 a -50 that arrives at the end of a 20 s episode is worth almost nothing at the start.
+- **V4EZ was the first arm to pass** and became baseline_v4.2. Its final was first reported as 99.03 from the last checkpoint alone and is 98.58 as the mean of the last 3 checkpoints. The reason for temporally-extended exploration is in "Why the stop line stalls".
+- **60 s episodes alone did not help.** They remove only the roughly 0.2% of failures that are timeouts, and crashes rose from 0.64% to 1.01%, which fits the replay holding a different mix of transitions. Together with gamma 0.99 they passed with the highest final of any arm. Over 3 runs that spread by 0.9 points this is "not worse" rather than "better".
+- **Gamma 0.99 needs the 60 s episode.** On 20 s episodes V4EZG99 kept its best, but one run's final collapsed to 71.61%.
+- **The proximity penalty** charges up to 0.2 per step, rising linearly as the clearance short of contact falls from 0.3 m to 0. 87% of the crashes it targets were side contacts at 60 to 100 degrees from the heading. It raised best on every line it was added to, and on V4EZ without gamma 0.99 one run fell to 56.22% at ep2800.
+
+## Why the stop action came back
+
+baseline_v4 has no stop, because removing it ended the stopping and swinging (see "Why baseline_v4 looks the way it does"). The user brought it back on 2026-10-27 and kept it through every round in which it scored lower. This is the most important design decision after baseline_v4, so the reasons are recorded in full.
+
+**The user's reasons**
+- Most baseline_v4 failures at 8 obstacles were attempts to squeeze through a gap. The user's view was that a drone in a gap it cannot pass needs to stop and turn around, and only the stop action makes that possible.
+- On 2026-10-30, translated from the user's words. "Although success is lower after adding stop, only stop can turn around and get out of a tight gap. If it can learn this, success should be higher. The supporting measure is the similarity penalty to avoid jitter."
+- On 2026-10-31, after the failure analysis of the stop arms. "The second most common failure is forcing into the narrow gap between two close obstacles. This still needs stopping to solve, so for now the experiments focus on the ones with stop."
+- There is a path out of a dead end, which is to turn around and go back along the route the drone came by. If the drone has never turned around successfully, it can never learn that turning around has a high value. This is what led to temporally-extended exploration.
+- Standing still costs less than a crash, and on the real drone safety matters more. So a policy that sometimes stalls instead of crashing is acceptable.
+
+**Changes that only work together count as one change**
+- Stop alone makes the drone stall and swing in place, so testing it alone and dropping it when it scores lower would reject an idea that needs its partner. In the user's words, "if a combination of two changes is reasonable, it can still be treated as a single change."
+- So the stop line is tested as packages. The stop package is the stop action, the similarity penalty at -0.3 and temporally-extended exploration. The long-episode package is 60 s episodes with prioritized replay or gamma 0.99.
+- Each package's contents are fixed before its results are seen. Only after a package passes is it taken apart to find which part mattered, so that it is first shown to be no worse and then explained.
+- The stop experiments got their own base, `baseline_v4_stop`, because every experiment on that line exists to make the stop action work.
+
+**Claude's counterargument, also recorded**
+- Without stop the slowest speed, 0.075 m/s, already turns on a radius of about 9 cm, so a U-turn is possible without stopping. Stop adds only turning in place, which matters only for gaps narrower than about 19 cm.
+- The narrow-gap crashes come from flying into a gap the drone cannot pass, not from failing to get out of it (see "The hard group, flights through a gap").
+- At that time V4EZ without stop scored 99.34% best at 600-step evaluation against 98.76% for the best stop arm.
+
+**The trade-off accepted.** The stop line is kept even though no stop arm beats the arm without stop at the same settings by more than the spread between runs, and its finals swing more. baseline_stop_v5 reached 99.45% and 98.35%, against 99.38% and 99.19%† for V4LONGG99 without stop.
+
+## Experiments with the stop action, from baseline_v4_stop to baseline_stop_v5
+
+`baseline_v4_stop` is baseline_v4.1 plus the new layout and a stop as a fourth speed, so the speeds are 0, 0.075, 0.3 and 1.5 m/s times 3 turns, 12 actions. All finals in this table are the mean of the last 3 checkpoints.
+
+| Arm | Change | best | final | Pass |
+|---|---|---|---|---|
+| V4STOP | the stop action | 98.20 | 97.82 | no |
+| V4FRONT5STOP | V4STOP with the front camera's 5 bins only | 98.29 | 96.91 | no |
+| V4STOPTP | -0.01 every step | 98.04 | 97.04 | no |
+| V4STOPTO | -50 on a timeout | 98.69 | 97.18 | no |
+| V4STOPSIM | similarity penalty -0.1 against the pose 20 steps back | 97.89 | 97.31 | no |
+| V4STOPSIMW | V4STOPSIM at -0.03 | 97.89 | 97.00 | no |
+| V4STOPSIMOBS | V4STOPSIM with the offset from that pose in the state | 98.68 | 97.30 | no |
+| V4STOPSIMOBSTO | V4STOPSIMOBS with -50 on a timeout | 98.67 | 97.62 | no |
+| V4STOPSIMOBSEXP | heading similarity exp(-abs(heading change) / 0.2) | 98.59 | 97.83 | no |
+| V4STOPSIMOBSEXP3 | V4STOPSIMOBSEXP at -0.3 | 98.71 | 97.80 | no |
+| V4STOPEZ | V4STOP with temporally-extended exploration | 98.14 | 97.61 | no |
+| V4STOPSIMOBSEXP3EZ | the stop package | 98.93 | 98.05 | no |
+| V4STOPLONG | V4STOP with 60 s episodes | 98.23 | 96.91 | no |
+| V4STOPPKGLONGPER | stop package, 60 s, prioritized replay | 99.32 | 98.31 | yes |
+| V4STOPPKGLONGG99 | stop package, 60 s, gamma 0.99 | 99.44 | 98.44 | yes |
+| **V4STOPPKGLONGG99PROX** | V4STOPPKGLONGG99 with the proximity penalty, which became baseline_stop_v5 | **99.45** | **98.35** | **yes** |
+
+- **The stop action alone** lowered crashes from 0.85% to 0.61% but raised oscillation from 0.10% to 1.14%. 85% to 97% of successful episodes used the stop, so it is not idle.
+- **A flat time penalty did not stop the stalling**, which points at the value estimate rather than at stopping being free (see "Why the stop line stalls").
+- **The similarity penalty** was the user's idea. It charges -c * exp(-distance / 0.05 m) times a heading factor against the pose 20 steps back in the same episode, so standing or swinging in place costs every step while flying on costs almost nothing. It is a penalty and not a reward because a reward for moving can be farmed by orbiting. Without the offset in the state the network cannot see why it is charged, and adding it helped. The steeper heading factor and the coefficient of -0.3 helped only a little each.
+- **The packages** passed once the long-episode package joined the stop package. Under the last checkpoint alone V4STOPPKGLONGPER would have failed at 97.63 and V4STOPPKGLONGG99 at 97.92, which is part of why the final became the mean of the last 3 checkpoints.
+
+## Why baseline_stop_v5 looks the way it does
+
+V4STOPPKGLONGG99 and V4STOPPKGLONGG99PROX are tied in simulation, 99.44% and 98.44% against 99.45% and 98.35%.
+- Claude first recommended the arm without the proximity penalty, because a baseline should carry only changes that were shown to help.
+- The user's reason for the penalty is the real drone. Sensing and control errors push the real airframe closer to obstacles than planned, and the penalty keeps a clearance margin that the noise-free simulation cannot reward. In simulation the penalty arm even had slightly more crashes, 106 against 90, so "safer" is an expectation for the real drone, not a measurement.
+- A worry that the penalty would make the drone circle a target close to an obstacle was checked and dropped. Among timeouts, targets 1.0 to 1.5 m from an obstacle were 17.8% for the final checkpoints and 27.1% for the best, against 34.3% of all layouts.
+- On 2026-10-31 the user chose V4STOPPKGLONGG99PROX as `baseline_stop_v5`.
+
+So baseline_stop_v5 is baseline_v4_stop plus the similarity penalty at -0.3 with the steeper heading factor and the pose offset in the state, temporally-extended exploration, 60 s episodes with the replay thinned past step 200, gamma 0.99 and the proximity penalty of 0.2 within 0.3 m.
+
+Four single changes on top of it all failed the final.
+
+| Arm | Change | best | final |
+|---|---|---|---|
+| baseline_stop_v5 | | 99.45 | 98.35 |
+| STOP5G995 | gamma 0.995 | 99.62 | 97.49 |
+| STOP5PER | prioritized replay in place of the thinning | 99.62 | 95.99 |
+| STOP5LR5E4 | learning rate 5e-4 | 99.47 | 97.92 |
+| STOP5TAU25 | soft update tau 0.00025 | 99.37 | 97.96 |
+
+- Gamma 0.995 and prioritized replay raised best but collapsed at single late checkpoints. STOP5PER r1 fell to 76.98% at ep2800. Over 90 checkpoints each, the baseline dipped below 95% 7 times, G995 14 times and PER 6 times. These dips are instability, not the model still learning.
+- Halving the learning rate or tau, both meant to calm those dips, did not raise the final.
+
+## Why the stop line stalls
+
+**The value of stopping is almost the same as moving.** Replaying the timeouts of V4STOP's best checkpoints, 148, 72 and 139 per run, the drone spent 73% to 86% of its steps stopped and reversed its turn on 57% to 74% of steps, about 3.1 m from the target and with the nearest reading at 0.32 to 0.56 m.
+- The largest Q-value was 19 to 30 and stopping beat moving by only 0.16 to 1.1, so a small error in the estimate keeps postponing the move.
+- Without stop the slowest speed still moves 7.5 mm a step, so the drone cannot stay in this loop.
+- Swapping the previous-turn input flipped the choice only 22.5% of the time, against 84.8% alternation, so the swinging comes from sitting on the boundary between two headings, not from copying the previous action.
+
+**The policy knows how to leave but cannot hold a turn.** Stalled episodes were taken at step 80 and forced to turn in place for 40 steps.
+- In open space 100 of 104 then reached the target, against 9 of 104 left alone. In narrow gaps 40 of 47 reached it, against 7 of 47.
+- A U-turn needs about 39 turns the same way in a row, and per-step epsilon-greedy produces that with a probability of about (0.03 / 12)^39, so exploration never shows the network that turning around pays off.
+- Temporally-extended epsilon-greedy (Dabney, Ostrovski and Barreto, *Temporally-Extended epsilon-Greedy Exploration*, ICLR 2021) holds each exploratory action for a number of steps drawn from a zeta distribution with mu 2, capped at 100, with the start probability scaled so the share of exploratory steps stays epsilon.
+
+**The remaining stalls are a fixed point.** Of the 59 timeouts of baseline_stop_v5's best checkpoints, 56 did not move at all in their last 200 steps.
+- 29 alternated stop-left and stop-right every step, 10 stood still, 16 cycled with periods of 4 to 28 steps, 1 spun one way and 3 actually moved.
+- They already pay the full -0.3 similarity penalty every step and still stay, so a larger penalty or more comparison windows would only charge them more without changing the choice.
+- The same checkpoints flew through 2,766 gaps narrower than 1.0 m when they succeeded and backed off at least 0.3 m in 1,053 successes, so the stalls do not come from fear of gaps.
+
+**Why gamma 0.99 helps a U-turn**, as a worked example rather than a measurement. For a slow U-turn of 40 turning steps, 2 m back and 5 m on, the discounted +100 is worth about 5.8 at gamma 0.98 and about 24.2 at gamma 0.99. Standing forever is worth about -15 and -30. So gamma 0.99 makes the U-turn clearly worth more than standing, and the 60 s episode gives the slow route time to finish.
+
+## The hard group, flights through a gap
+
+The overall rate averages away the hard layouts, which swing two to three times as much, so from 2026-11-01 every comparison also lists success on the episodes in which the drone flew through a gap.
+
+**Definition.** On the 8-obstacle layouts of seed 777, an episode counts when at some step two obstacles lie more than 90 degrees apart in bearing from the drone and the drone's distances to their two surfaces sum to under 1.0 m, the width of the gap it is in.
+- It depends on how the model flew, so each arm meets a different set, and the count is always given next to the rate. An arm that avoids gaps meets fewer of them.
+- A crash against a single obstacle never counts, since the rule needs an obstacle on each side.
+- Two definitions based only on the layout were tried first and dropped, because the drone could simply fly around the gaps they found. The user wants gaps the drone actually met.
+- `drone_runs/baseline_v2/tools/gap_pass.py` replays the best and the last 3 checkpoints of each run, and the results are under `drone_runs/baseline_v2/hard_cases/<arm>/`.
+
+Success in % with the mean episode count over 3 runs in brackets. final is the mean of the last 3 checkpoints.
+
+| Arm | Readings | Checkpoint | Overall | Gap under 1.0 m | 0.4 to 0.6 m | 0.6 to 0.8 m | 0.8 to 1.0 m |
+|---|---|---|---|---|---|---|---|
+| baseline_stop_v5 | 4 sectors | best | 99.45 | 95.95 (1038) | 84.41 (207) | 98.34 | 99.46 |
+| | | final | 98.35 | 95.09 (1031) | 82.43 (183) | 97.40 | 98.90 |
+| STOP5LR5E4 | 4 sectors | best | 99.47 | 96.86 (1050) | 87.10 (204) | 98.80 | 99.65 |
+| | | final | 97.92 | 95.08 (1035) | 84.81 (205) | 96.97 | 98.59 |
+| STOP5TAU25 | 4 sectors | best | 99.37 | 94.96 (916) | 77.58 (161) | 98.03 | 98.97 |
+| | | final | 97.96 | 93.25 (950) | 78.25 (153) | 94.81 | 97.50 |
+| V4EZ (baseline_v4.2) | 4 sectors | best | 99.13 | 93.41 (937) | 74.64 (160) | 96.05 | 98.92 |
+| | | final | 98.57 | 89.95 (1083) | 63.94 (234) | 96.76 | 98.78 |
+| V4CAM5WD | 3 cameras x 5 bins | best | 98.80 | 91.02 (950) | 66.41 (194) | 96.55 | 98.94 |
+| | | final | 98.28 | 88.86 (993) | 60.95 (214) | 95.28 | 98.44 |
+| V4FRONT2CAMWD | 2 cameras x 5 bins | best | 99.24 | 94.41 (976) | 78.77 (175) | 97.84 | 98.70 |
+| | | final | 97.79 | 91.51 (1011) | 71.39 (207) | 96.47 | 97.99 |
+
+- **The stop line handles narrow gaps best.** baseline_stop_v5 succeeds in 84.41% of the 0.4 to 0.6 m gaps at best and 82.43% at final, against 74.64% and 63.94% for baseline_v4.2, and it does not show in the overall rate. baseline_stop_v5 differs from baseline_v4.2 by the stop package and the long-episode package together, so this does not yet isolate the stop action.
+- **Two cameras beat four sectors on narrow gaps**, 78.77% against 74.64% at best and 71.39% against 63.94% at final on the same settings apart from the sensor and weight decay, while its overall final is lower.
+- **Three cameras did worst** on narrow gaps.
+
+**Narrow-gap success does not grow with training.** Checkpoints of baseline_stop_v5 every 300 episodes of the 8-obstacle stage were replayed.
+- On 0.4 to 0.6 m gaps the 3-run mean swings between 75% and 88% with no trend, and neighbouring checkpoints of one run differ by 20 to 30 points. r2 scored 98.70% at ep2700 and 66.41% at its last checkpoint.
+- A checkpoint that enters more narrow gaps does worse on them, a correlation of -0.45, while its overall rate barely moves, a correlation of -0.04. These gaps are under 3% of the 10,000 layouts.
+- On a fixed set of 112 narrow-gap layouts that at least half the checkpoints met, the first half of the stage averaged 83.9% and the second half 85.3%, inside the noise of about 2 points.
+- So the swings come from unstable training, not from a model still learning to pass gaps.
+
+**What the narrow-gap failures are.** The 3 best checkpoints failed 28 of the 112 narrow-gap layouts.
+- 23 forced into the gap and crashed, 4 stood at the gap mouth until the time ran out, and 1 hit another obstacle.
+- Of the 21 forced entries with a usable record, 4 gaps were under the drone's 0.40 m diameter, 7 were 0.40 to 0.45 m and 3 were 0.45 to 0.50 m. So 11 should never have been entered.
+- A small classifier that sees only the 4 sector readings separates a passable gap of at least 0.5 m from one under 0.45 m with an AUC of about 0.98 at the gap mouth, but only 0.80 while still 0.3 to 0.6 m away. Each sector reports only its nearest distance and no bearing, so from a distance the readings cannot encode how wide a gap is.
+- So part of the failure is the policy, such as r2#6749, which read about 0.32 m on both front sectors, stood at the mouth for 5 steps and then sped in. Part is the sensor, which cannot tell gap width in time to turn away early.
+
+## Sensor experiments and the move to two cameras
+
+| Arm | Readings | best | final | Pass |
+|---|---|---|---|---|
+| V4_8 | 4 sectors (baseline_v4) | 99.02 | 98.56† | yes |
+| V4CAM5 | 3 cameras x 5 bins, 15 readings | 98.97 | 97.53† | no |
+| V4FRONT5 | the front camera's 5 bins only | 98.69 | 97.03† | no |
+| V4CAM5WD | V4CAM5 on baseline_v4.2 with weight decay 1e-4 | 98.80 | 98.28 | no |
+| V4FRONT2CAMWD | 2 cameras x 5 bins on baseline_v4.2 with weight decay 1e-4 | 99.24 | 97.79 | no |
+
+- **5 bins per camera** split each 73 degree camera into five 14.6 degree bins, each reporting the nearest depth. A real depth camera gives this directly, so it stays within what the drone can measure. The bins add the bearing that the sector readings lack.
+- **The side cameras are needed when there is only one front camera.** V4FRONT5 crashed about 126 times against about 89, many of them in gaps of 0.8 m or more.
+- **Two cameras turned to plus and minus 36.5 degrees** cover the front 146 degrees with no gap and nothing to the sides. The user wants fewer sensors on the real drone, and two cameras were enough to tell left from right and to get around obstacles.
+- V4CAM5WD was the candidate for baseline_v4.3 and failed, so baseline_v4.3 was never made.
+
+## Why baseline_v6 looks the way it does
+
+On 2026-11-02 the user decided that the 5-bin camera readings belong in the baseline, so baseline_v4.2 became `baseline_v6` and baseline_stop_v5 became `baseline_stop_v6`, and every new experiment builds on these two. The user chose two cameras over three because they need fewer sensors and already handle left and right.
+
+| Branch | Built from | Change | State |
+|---|---|---|---|
+| `baseline_v6` (`410134d`) | baseline_v4.2 | merge of `exp/v4-2cam-wd` | 18 inputs, 10 of them camera bins |
+| `baseline_stop_v6` (`addd60d`) | baseline_stop_v5 | merge of `exp/v4-2cam-wd` | 22 inputs, 10 camera bins plus the previous action and the pose offset |
+
+- The merge also brings the optional AdamW weight decay, which defaults to 0, so neither baseline uses it. This is the only difference from V4FRONT2CAMWD, which used 1e-4.
+- **What argues against it.** On the old settings two cameras had the highest best of the three sensors but the lowest final, 97.79%, with 2 of 3 runs under 98%. So on the overall rate there is not yet evidence that the bins beat four sectors, and the choice rests on the narrow-gap results and the sensor count. The v6 runs answer whether two cameras hold up on the v5 settings.
+
+**Results so far.** The chains run 0, 1, 2, 3, 5 and 8 obstacles. V6 r3 has not started yet, so V6 has 2 runs.
+
+| Arm | 3 obstacles best / final | 5 obstacles best / final | 8 obstacles |
+|---|---|---|---|
+| V4EZ (baseline_v4.2) | 99.67 / 99.30 | 99.33 / 99.11 | 99.13 / 98.58 |
+| V6 | 99.51 / 98.94 | 99.22 / 99.11 | running |
+| baseline_stop_v5 | 99.73 / 99.28 | 99.62 / 98.19 | 99.45 / 98.35 |
+| STOP6 | 99.58 / 99.16 | running | not started |
+| STOP6CRASH100 | 99.45 / 98.73 | running | not started |
+
+**Four experiments on baseline_stop_v6**, all started from the narrow-gap and stalling analyses above.
+
+| Arm | Change | Reason |
+|---|---|---|
+| STOP6SIM3W | the similarity penalty compares the pose 20, 40 and 80 steps back, at most -0.1 each, with the 40 and 80-step windows judging position alone at 0.1 and 0.2 m | A drone turning in place one way changes its heading by 1.6 rad every 20 steps and so escaped the penalty, which also counts heading. The total stays at -0.3, so it tests the longer windows and not a larger charge. The state shows all three offsets, 9 values instead of 3 |
+| STOP6CRASH100 | crash penalty -100 instead of -50 | A crash is dangerous on the real drone |
+| STOP6PROG05 | progress weight 0.05 instead of 0.15 | Tests whether the progress reward discourages a detour |
+| STOP6POT | potential-based progress shaping | The same question with a reward that provably does not change the best policy |
+
+- **What Codex and Claude expected of STOP6CRASH100.** With only the terminal rewards the expected return is 150p - 50 for a success rate p, so the size of the crash penalty does not change which policy succeeds most. What makes the drone take risks is the discount, since a detour delays the +100. A larger penalty may turn crashes into timeouts, so this arm reports timeouts and crashes along with success.
+- **The progress reward and a detour.** It is 0.15 x speed x cos(heading error) per step, which sums to about 1.5 per metre gained toward the target whatever the speed, so backing off 1 m costs 1.5 however slowly it is done. Turning in place costs nothing. Discounting costs a detour more, since arriving 10 steps later at gamma 0.99 loses about 10 of the +100. A reward for facing the target alone was tried long ago, and the network learned to face the target and stand still.
+- **Potential-based shaping** (Ng, Harada and Russell, *Policy invariance under reward transformations*, ICML 1999) pays 1.5 x (previous distance - gamma x current distance). It sums to the same amount on every path, so it cannot make a detour look worse. The current reward equals this shaping minus 1.5 x (1 - gamma) x remaining distance on every step, a hidden charge of about 0.075 per step at 5 m. So STOP6POT removes only that charge, and if nothing changes, the reward shape is ruled out as a cause.
+
+**Failures of STOP6 at 2 obstacles.** The weakest run, r2 at 97.65% final, failed 706 episodes over its last 3 checkpoints.
+
+| Pattern | Share | What happens |
+|---|---|---|
+| Stopped until timeout | 66% | 267 stop about 1.2 m from the target with the target behind them at about 137 degrees and turn left and right in place. 199 stop within the first 15 steps 0.5 m from an obstacle on the line to the target |
+| Crash into an obstacle in view | 14% | Median crash at step 23, at full speed, side-swiping an obstacle at about 71 degrees in the outermost bin |
+| Circling near the target | 8% | Ends within 2 m of the target while still moving |
+| Swinging | 4% | |
+| Crash in a gap | 3% | |
+| Crash on the blind side | 2% | |
+| Far timeout | 2% | |
+
+- With two cameras the drone sees nothing beyond 73 degrees to either side, against 219 degrees of coverage with three cameras. Turning toward a target behind it means turning toward space it cannot see, so this pattern may come from losing the side view rather than from the stop action. That needs a check against baseline_stop_v5 at the same stage.
+
 ## Evidence on the two core problems
 
 This section also includes the ablations from before baseline_v2. The numbers come from five sources.
@@ -553,7 +803,11 @@ My current understanding has three parts.
 2. **Training instability** is largely solved. DDQN + SOFT brought final to 81% to 83%, dt 0.1 to 92.59%, and baseline_v4 reaches 98.91%.
 3. **Success with 5 obstacles** rose from 92.20% for baseline_v3 to 99.44% for baseline_v4.
 4. Doubling the crash penalty, enlarging the buffer to 2,000,000 and gamma 0.996 all made things worse and can be dropped. A Q network with one output per action helped only a little, and its outputs grow with every combination of actions, so it will not be tried again.
-5. The new and old curricula do not differ, so 1 → 2 → 3 → 5 stays.
+5. The new and old curricula do not differ, so 1 → 2 → 3 → 5 stays, now followed by 8 obstacles.
+6. **At 8 obstacles** baseline_v4.2 passes at 99.13% and 98.58%, and the best arm without stop, V4LONGG99, reaches 99.38% and 99.19%†. Temporally-extended exploration, 60 s episodes together with gamma 0.99, and the proximity penalty are the changes that helped. Time and timeout penalties, a stage-local learning-rate decay, gamma 0.995 and prioritized replay on top of baseline_stop_v5 did not.
+7. **The stop action** is kept for the U-turn out of a gap that is too narrow, even though it scores no better overall and its finals swing more. With the similarity penalty, temporally-extended exploration, 60 s episodes and gamma 0.99 it passes, and baseline_stop_v5 reaches 99.45% and 98.35%. On 0.4 to 0.6 m gaps it succeeds about 10 points more often than baseline_v4.2, although that comparison still mixes the stop action with the long-episode package.
+8. **Late-stage instability is back at 8 obstacles.** Single checkpoints late in a stage can drop 20 to 40 points, which is why the final is the mean of the last 3 checkpoints. The swings are training instability, and narrow-gap success does not trend upward during a stage.
+9. **The sensor is part of the narrow-gap problem.** Four sector readings carry no bearing, so the drone cannot tell a passable gap from a closed one until it is at the mouth. Two cameras of 5 bins each did better on narrow gaps, which is why they are in baseline_v6, but their overall final is not yet shown to be as good.
 
 ## Limitations
 
@@ -562,13 +816,19 @@ My current understanding has three parts.
 - dt 0.1 differs from the 0.02 s of the Isaac env. Moving to Isaac Lab means letting the network decide every 0.1 s while the low-level control holds the same action in between.
 - Contact is only tested at the end of each step. At dt 0.1 a full-speed step covers 0.15 m and can graze up to about 4 mm into the contact zone without counting as a crash, which is an accepted error.
 - 4 sectors and three forward speeds change the state and the action space, so these runs cannot start from the shared obstacle-free checkpoint and must train their own first stage with no obstacles.
+- The pass rule of 99% and 98% says whether a setting is good enough, not whether it is better. Most arms that pass differ from each other by less than the spread between their own runs.
+- Finals from before 2026-10-31 that were never rescored are the last checkpoint alone and can sit on a dip. They are marked †.
+- The hard group differs between arms, because it depends on how each model flew. Its rates are compared together with the episode counts.
+- Two cameras see nothing beyond 73 degrees to either side. The real drone has to carry the same camera layout for these results to transfer.
 
 ## Next steps
 
-1. Test weight decay on baseline_v4, to see whether it pushes useless input weights down and how it affects stability.
-2. Try three methods from the literature that bring final closer to best. On 5 obstacles baseline_v4's best and final already differ by only about 0.5 percentage points, too little to measure, so they wait for the 8-obstacle benchmark and are listed in order of cost.
+1. Finish the baseline_v6 runs, V6, STOP6 and the four experiments in "Why baseline_v6 looks the way it does", and compare them with baseline_v4.2 and baseline_stop_v5 on the overall rate and on the hard group.
+2. Check whether the stopped timeouts with the target behind the drone in STOP6 come from the narrower field of view, by replaying baseline_stop_v5 at the same stage.
+3. Separate the stop action from the long-episode package on narrow gaps, by running the hard group on V4LONGG99, which has the long-episode package without the stop.
+4. Try three methods from the literature that bring final closer to best. The 8-obstacle stage now shows late dips of 20 to 40 points, so the gap between best and final is large enough to measure. They are listed in order of cost.
    - Evaluate with the soft target network (Nikishin et al., 2018, and Anschel et al., *Averaged-DQN*, ICML 2017). The soft target is already a moving average of the online network's weights, so evaluating it can reduce the jumps between checkpoints. Training needs no change, only saving the target network as well.
    - Add a LayerNorm after fc1 and fc2 of the Q network (Gallici et al., *Simplifying Deep Temporal Difference Learning*, ICLR 2025). The paper proves that LayerNorm with an L2 penalty makes TD learning converge, and the parallel sampling it relies on is close to the 64 environments run at once here.
    - Replace Q-value regression with classification over a histogram, the HL-Gauss loss (Farebrother et al., *Stop Regressing*, ICML 2024), to soften noisy targets and a shifting distribution. It adds two hyperparameters, the number of bins and sigma, so it comes last.
-3. Before moving to Isaac Lab, run baseline_v4 in `camera` mode to confirm that emulated camera readings give the same results.
-4. With 99% at 5 obstacles, success no longer tells settings apart. A new layout rule always places the obstacle that blocks the direct path, and training 8 obstacles from baseline_v4's 5-obstacle checkpoint becomes the new benchmark.
+5. Before moving to Isaac Lab, run baseline_v6 in `camera` mode to confirm that emulated camera readings give the same results.
+6. Memory of past steps for maze-like layouts, first stacked recent inputs, then a GRU, and an attention encoder last. The state already carries the pose offset from 20 steps back as a summary. A 1-layer attention encoder over the last 20 actions would add 11% to 91% parameters for an embedding of 8 to 32, but 2 to 14 times the compute per forward pass, which matters on the CPU.
