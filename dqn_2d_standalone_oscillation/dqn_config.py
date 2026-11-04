@@ -62,19 +62,20 @@ class DQNConfig:
     per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
     # Per-step penalty for passing near an obstacle, 0 from proximity_margin metres of clearance outward and
     # growing as the clearance shrinks, to proximity_penalty at contact under the linear shape. 0 leaves the reward unchanged.
-    proximity_penalty: float = 0.0
+    proximity_penalty: float = 0.01
     proximity_margin: float = 0.3
     # "inverse_square" charges proximity_penalty * (1/c^2 - 1/proximity_margin^2) instead, 0 at the margin,
     # with the clearance c held at proximity_min_clearance or more so contact stays finite. Near contact
     # this is far larger than the linear shape, so proximity_penalty is not comparable between the two.
-    proximity_shape: str = "linear"
+    proximity_shape: str = "inverse_square"
     proximity_min_clearance: float = 0.03
     # "sensor" takes the clearance from the smallest reading of the pose just reached, so an obstacle out
-    # of view costs nothing. "true" uses the nearest surface, seen or not.
-    proximity_clearance: str = "true"
+    # of view costs nothing. "true" uses the nearest surface, seen or not. The env rejects "sensor" in
+    # coords mode, which has no distance readings, so a coords run passes "true".
+    proximity_clearance: str = "sensor"
     # Above 0 the penalty is scaled by the distance moved this step over this many metres, so a stopped
     # drone pays none of it and a slow pass no more in total than a fast one.
-    proximity_travel_ref: float = 0.0
+    proximity_travel_ref: float = 0.15
     # Decoupled weight decay through AdamW. 0 keeps plain Adam.
     weight_decay: float = 1e-4
 
