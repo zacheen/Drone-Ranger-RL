@@ -103,6 +103,12 @@ class DroneNav2DEnv:
             raise ValueError(f"distance_mode must be one of {DISTANCE_MODES}, got {distance_mode!r}")
         if not 1 <= k_nearest <= MAX_OBSTACLES:
             raise ValueError(f"k_nearest must be in [1, {MAX_OBSTACLES}], got {k_nearest}")
+        if cfg.proximity_shape not in ("linear", "inverse_square"):
+            raise ValueError(f"proximity_shape must be linear or inverse_square, got {cfg.proximity_shape!r}")
+        if cfg.proximity_clearance not in ("true", "sensor"):
+            raise ValueError(f"proximity_clearance must be true or sensor, got {cfg.proximity_clearance!r}")
+        if cfg.proximity_clearance == "sensor" and distance_mode == "coords":
+            raise ValueError("proximity_clearance sensor needs distance readings, which coords mode does not give")
         self.num_envs = num_envs
         self.cfg = cfg
         self.device = device
@@ -302,9 +308,10 @@ class DroneNav2DEnv:
         self._last_any_contact = crashed
         self._last_out_of_bounds = out_of_bounds
 
+        sensor_dist = obs_dict["dqn_state"][:, :self.num_readings].min(dim=-1).values
         reward, self.last_reward_breakdown = self._compute_reward(
             dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, surface_dist=surface_dist,
-            return_breakdown=True)
+            sensor_dist=sensor_dist, return_breakdown=True)
 
         # The episode's true last state, which the resample below overwrites
         # for every env that just finished.
@@ -367,7 +374,7 @@ class DroneNav2DEnv:
     SIMILARITY_YAW_SCALE = 0.2
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
-                         vx_signed=None, surface_dist=None, return_breakdown=False):
+                         vx_signed=None, surface_dist=None, sensor_dist=None, return_breakdown=False):
         """Redesigned reward, replacing the additive rew_distance +
         rew_yaw_aligned + rew_action_rate combination (which had two
         separate, independently-farmable exploits diagnosed via
@@ -416,12 +423,22 @@ class DroneNav2DEnv:
         rew_progress = vx_signed * yaw_cos * self.K_PROGRESS
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
-        # surface_dist is from the drone's center, so contact is at DRONE_RADIUS, not 0.
-        if surface_dist is None or self.cfg.proximity_penalty == 0:
+        # surface_dist and the ground_truth readings are measured from the drone's center, so contact is at DRONE_RADIUS, not 0.
+        # Camera readings start at the camera mounts, so sensor clearance is only approximate in that mode.
+        center_dist = sensor_dist if self.cfg.proximity_clearance == "sensor" else surface_dist
+        if center_dist is None or self.cfg.proximity_penalty == 0:
             rew_proximity = torch.zeros_like(rew_progress)
         else:
-            closeness = (1 - (surface_dist - DRONE_RADIUS) / self.cfg.proximity_margin).clamp(0, 1)
+            clearance = center_dist - DRONE_RADIUS
+            margin = self.cfg.proximity_margin
+            if self.cfg.proximity_shape == "linear":
+                closeness = (1 - clearance / margin).clamp(0, 1)
+            else:
+                c = clearance.clamp(min=self.cfg.proximity_min_clearance)
+                closeness = (1 / c ** 2 - 1 / margin ** 2).clamp(min=0)
             rew_proximity = -self.cfg.proximity_penalty * closeness
+            if self.cfg.proximity_travel_ref > 0:
+                rew_proximity = rew_proximity * vx_signed * DT / self.cfg.proximity_travel_ref
 
         rew_similarity = self.pose_similarity * self.SIMILARITY_PENALTY
 
