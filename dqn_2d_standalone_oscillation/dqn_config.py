@@ -65,7 +65,7 @@ class DQNConfig:
     proximity_penalty: float = 0.0
     proximity_margin: float = 0.3
     # Decoupled weight decay through AdamW. 0 keeps plain Adam.
-    weight_decay: float = 0.0
+    weight_decay: float = 1e-4
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
