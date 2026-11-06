@@ -77,7 +77,7 @@ class DQNConfig:
     # drone pays none of it and a slow pass no more in total than a fast one.
     proximity_travel_ref: float = 0.15
     # Decoupled weight decay through AdamW. 0 keeps plain Adam.
-    weight_decay: float = 1e-4
+    weight_decay: float = 1e-3
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
