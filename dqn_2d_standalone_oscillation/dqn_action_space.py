@@ -94,12 +94,16 @@ class QNetwork(nn.Module):
             raise ValueError(f"the two-head network outputs {NUM_SPEEDS * NUM_TURNS} actions, got action_dim={action_dim}")
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        # LayerNorm before each ReLU, as in Gallici et al., Simplifying Deep Temporal Difference Learning (ICLR 2025).
+        # Its parameters are new state_dict keys, so checkpoints trained without it do not load into this network.
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
         self.speed_head = nn.Linear(hidden_dim, NUM_SPEEDS)
         self.turn_head = nn.Linear(hidden_dim, NUM_TURNS)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = F.relu(self.ln1(self.fc1(x)))
+        x = F.relu(self.ln2(self.fc2(x)))
         # Q(s, speed, turn) = Q_speed + Q_turn, flattened to the action index order above.
         q = self.speed_head(x).unsqueeze(-1) + self.turn_head(x).unsqueeze(-2)
         return q.flatten(start_dim=-2)
