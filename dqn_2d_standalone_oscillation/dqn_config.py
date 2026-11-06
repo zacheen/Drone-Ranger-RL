@@ -36,11 +36,11 @@ class DQNConfig:
     # ── Training hyperparameters (initial values from the LT-DQN paper's
     # Table, some since tuned) ──
     replay_buffer_size: int = 500000  # 50000 held only the last ~780 vector steps of 64 envs
-    batch_size: int = 64
+    batch_size: int = 128
     learning_rate: float = 1e-3
-    gamma: float = 0.98
+    gamma: float = 0.99
     epsilon_start: float = 1.0
-    epsilon_min: float = 0.03
+    epsilon_min: float = 0.01
     epsilon_decay: float = 0.995
     target_update_every: int = 20  # counted in episodes, not gradient steps; unused while target_tau > 0
     # Polyak step toward the online net after every gradient step, 0 for the periodic hard copy.
