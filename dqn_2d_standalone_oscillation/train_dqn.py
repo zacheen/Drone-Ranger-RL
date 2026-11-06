@@ -68,13 +68,17 @@ class ReplayBuffer:
     about 600 MB for a full 500k buffer, against about 200 bytes here.
     """
 
-    def __init__(self, capacity, state_dim):
+    def __init__(self, capacity, state_dim, alpha=0.0, eps=1e-3):
         self.capacity = capacity
+        self.alpha = alpha
+        self.eps = eps
         self.s = torch.zeros(capacity, state_dim)
         self.a = torch.zeros(capacity, dtype=torch.long)
         self.r = torch.zeros(capacity)
         self.s_next = torch.zeros(capacity, state_dim)
         self.done = torch.zeros(capacity)
+        self.priority = torch.zeros(capacity)
+        self.max_priority = 1.0  # given to new transitions, so each is drawn at least about as often as any other
         self.pos = 0  # next slot to write
         self.size = 0
 
@@ -90,6 +94,7 @@ class ReplayBuffer:
         self.r[slots] = r[first:].cpu()
         self.s_next[slots] = s_next[first:].cpu()
         self.done[slots] = done[first:].cpu().float()
+        self.priority[slots] = self.max_priority
         self.pos = (self.pos + n) % self.capacity
         self.size = min(self.size + n, self.capacity)
 
@@ -100,6 +105,28 @@ class ReplayBuffer:
         slots = (torch.tensor(random.sample(range(self.size), batch_size)) + oldest) % self.capacity
         return (self.s[slots], self.a[slots].to(device), self.r[slots].to(device),
                 self.s_next[slots], self.done[slots].to(device))
+
+    def sample_prioritized(self, batch_size, beta):
+        """Draw slots with probability proportional to priority, with replacement.
+
+        Returns the batch, then the slots (for update_priorities) and importance-sampling weights whose largest over the buffer is 1."""
+        # Slots fill from 0 and wrap only once full, so the first `size` slots are exactly the stored ones.
+        stored = self.priority[:self.size].double()
+        # float64 because a float32 running sum near 5e5 cannot resolve priorities near per_eps ** per_alpha.
+        cum = torch.cumsum(stored, 0)
+        draws = torch.rand(batch_size, dtype=torch.float64) * cum[-1]
+        slots = torch.searchsorted(cum, draws, right=True).clamp_(max=self.size - 1)
+        # Scaling by the batch's own largest weight would leave the sampling bias in place even at beta 1.
+        weights = (self.priority[slots].double() / stored.min()) ** -beta
+        weights = weights.float().to(device)
+        return (self.s[slots], self.a[slots].to(device), self.r[slots].to(device),
+                self.s_next[slots], self.done[slots].to(device), slots, weights)
+
+    def update_priorities(self, slots, td_error):
+        # A slot drawn twice in one batch gets the same TD error both times, so duplicate writes agree.
+        p = (td_error.abs().cpu() + self.eps) ** self.alpha
+        self.priority[slots] = p
+        self.max_priority = max(self.max_priority, p.max().item())
 
     def __len__(self):
         return self.size
@@ -129,7 +156,8 @@ if args.resume_optimizer_from:
     print(f"[DQN] resumed optimizer state from {args.resume_optimizer_from}")
 elif args.resume_from:
     print("[DQN] resumed weights but NOT optimizer state (no --resume_optimizer_from given) -- Adam's per-parameter momentum starts fresh this run")
-replay_buffer = ReplayBuffer(cfg.replay_buffer_size, env.state_dim)
+replay_buffer = ReplayBuffer(cfg.replay_buffer_size, env.state_dim, cfg.per_alpha, cfg.per_eps)
+use_per = cfg.per_alpha > 0
 
 epsilon = cfg.resume_epsilon if args.resume_from else cfg.epsilon_start
 explorer = HeldRandomExploration(args.num_envs, cfg.num_actions, cfg.explore_hold_mu, cfg.explore_max_hold, device)
@@ -205,6 +233,7 @@ for episode in range(args.num_episodes):
 
         actions_continuous = discrete_action_to_continuous(action_idx, device, cfg)
 
+        step_in_episode = env.step_count + 1  # read before step(), which resets the count of ended envs
         obs_dict, reward, terminated, truncated, info = env.step(actions_continuous)
         next_state = obs_dict["dqn_state"]
         done = terminated | truncated
@@ -212,7 +241,9 @@ for episode in range(args.num_episodes):
         # bounds just cuts the episode off, so its target still bootstraps from next_state.
         terminal = terminated
 
-        replay_buffer.push(state, action_idx, reward, next_state, terminal)
+        keep = ((step_in_episode <= cfg.replay_full_steps) | terminal
+                | (torch.rand(args.num_envs, device=device) < cfg.replay_late_fraction))
+        replay_buffer.push(state[keep], action_idx[keep], reward[keep], next_state[keep], terminal[keep])
 
         if done.any():
             outcomes = env.last_outcomes()
@@ -223,7 +254,11 @@ for episode in range(args.num_episodes):
         state = info["reset_obs"]["dqn_state"]
 
         if len(replay_buffer) >= cfg.batch_size:
-            s, a, r, s_next, d = replay_buffer.sample(cfg.batch_size)
+            if use_per:
+                beta = cfg.per_beta_start + (1 - cfg.per_beta_start) * episode / max(args.num_episodes - 1, 1)
+                s, a, r, s_next, d, slots, is_weight = replay_buffer.sample_prioritized(cfg.batch_size, beta)
+            else:
+                s, a, r, s_next, d = replay_buffer.sample(cfg.batch_size)
             s, s_next = s.to(device), s_next.to(device)
 
             q_pred = q_net(s).gather(1, a.unsqueeze(-1)).squeeze(-1)
@@ -232,11 +267,17 @@ for episode in range(args.num_episodes):
                 next_a = q_net(s_next).argmax(dim=-1, keepdim=True)
                 q_next_max = q_target(s_next).gather(1, next_a).squeeze(-1)
                 q_target_value = r + cfg.gamma * q_next_max * (1 - d)
-            loss = F.mse_loss(q_pred, q_target_value)
+            if use_per:
+                td_error = q_target_value - q_pred
+                loss = (is_weight * td_error.pow(2)).mean()
+            else:
+                loss = F.mse_loss(q_pred, q_target_value)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            if use_per:
+                replay_buffer.update_priorities(slots, td_error.detach())
             if cfg.target_tau > 0:
                 with torch.no_grad():
                     for p_t, p in zip(q_target.parameters(), q_net.parameters()):

@@ -3,8 +3,8 @@ Shared action-space definition and Q-network for the DQN experiments --
 train_dqn.py / dqn_diagnose.py / watch_dqn.py / q_sweep.py all import
 from here instead of each keeping their own copy.
 
-Each action is one of the SPEED_FRACTIONS of forward_speed, none of them
-zero, combined with a turn, none, left at +turn_rate or right at
+Each action is one of the SPEED_FRACTIONS of forward_speed, the first of
+them zero so the drone can stop or turn in place, combined with a turn, none, left at +turn_rate or right at
 -turn_rate. The Q-network scores the speed and the turn with separate
 heads and adds them.
 
@@ -38,26 +38,31 @@ _cfg = DQNConfig()
 
 NUM_ACTIONS = _cfg.num_actions
 STATE_DIM = _cfg.state_dim
-# Action index = speed * NUM_TURNS + turn, speed in (slow, mid, fast), turn in (none, left, right).
+# Action index = speed * NUM_TURNS + turn.
 NUM_SPEEDS, NUM_TURNS = len(SPEED_FRACTIONS), 3
-ACTION_NAMES = [f"{s}{t}" for s in ("slow", "mid", "fast") for t in ("", "_left", "_right")]
+ACTION_NAMES = [f"{s}{t}" for s in ("stop", "slow", "mid", "fast") for t in ("", "_left", "_right")]
 
 
 def _arctanh(y):
     return 0.5 * math.log((1 + y) / (1 - y))
 
 
+_VX_ZERO_RAW = -10.0
+
+
 @functools.lru_cache(maxsize=None)
 def _raw_commands(forward_speed, turn_rate, max_xy_vel, max_yaw_rate):
     """Raw vx for each speed and raw yaw rate for a turn. vx's squash formula is
     ((tanh(x)+1)/2)*max_xy_vel (forces non-negative, see _apply_action in the env),
-    so vx=v needs x = arctanh(2*v/max_xy_vel - 1)."""
+    so vx=v needs x = arctanh(2*v/max_xy_vel - 1). vx=0 would need arctanh(-1), which is
+    infinite, so the stop uses x = _VX_ZERO_RAW, whose squash rounds to exactly 0 in float32."""
     speeds = [f * forward_speed for f in SPEED_FRACTIONS]
-    if not all(0 < v < max_xy_vel for v in speeds):
-        raise ValueError(f"forward speeds {speeds} must lie strictly between 0 and max_xy_vel {max_xy_vel}")
+    if not all(0 <= v < max_xy_vel for v in speeds):
+        raise ValueError(f"forward speeds {speeds} must lie in [0, max_xy_vel {max_xy_vel})")
     if not 0 < turn_rate < max_yaw_rate:
         raise ValueError(f"turn_rate {turn_rate} must lie strictly between 0 and max_yaw_rate {max_yaw_rate}")
-    return [_arctanh(2 * v / max_xy_vel - 1) for v in speeds], _arctanh(turn_rate / max_yaw_rate)
+    vx_raw = [_VX_ZERO_RAW if v == 0 else _arctanh(2 * v / max_xy_vel - 1) for v in speeds]
+    return vx_raw, _arctanh(turn_rate / max_yaw_rate)
 
 
 def discrete_action_to_continuous(action_idx: torch.Tensor, device, cfg: DQNConfig = None) -> torch.Tensor:

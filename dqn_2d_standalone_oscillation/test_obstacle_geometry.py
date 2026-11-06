@@ -241,6 +241,64 @@ def test_contact_crash_and_obs_wiring():
     print("  crash detection and obstacle readings through step(): ok")
 
 
+LINEAR_PROXIMITY = dict(proximity_shape="linear", proximity_clearance="true", proximity_travel_ref=0.0)
+
+
+def _proximity_after_step(cfg, obstacles):
+    """rew_proximity after one full-speed step along +x from the origin, one obstacle of radius 0.5 per env at the
+    given centers."""
+    env = E.DroneNav2DEnv(len(obstacles), cfg, "cpu", num_obstacles=1)
+    env.reset()
+    env.obstacle_xy[:] = env._parked_xy
+    env.pos[:] = 0.0
+    env.yaw[:] = 0.0
+    env.target[:] = torch.tensor([-20.0, 0.0])
+    env.obstacle_xy[:, 0] = torch.tensor(obstacles)
+    env.step(torch.tensor([[10.0, 0.0, 0.0]]).expand(len(obstacles), -1))
+    return env.last_reward_breakdown["rew_proximity"]
+
+
+def test_proximity_penalty():
+    """The linear penalty ramps from 0 at proximity_margin of clearance to proximity_penalty at contact, the
+    inverse-square one charges proximity_penalty * (1/c^2 - 1/margin^2) with c held at proximity_min_clearance, and
+    the defaults are baseline_stop_v6.3's inverse-square 0.01 on the sensor clearance scaled by travel."""
+    cfg = DQNConfig()
+    assert (cfg.proximity_penalty, cfg.proximity_margin, cfg.proximity_shape, cfg.proximity_min_clearance,
+            cfg.proximity_clearance, cfg.proximity_travel_ref) == (0.01, 0.3, "inverse_square", 0.03, "sensor", 0.15)
+    # Beside where the 0.25 m step ends, surface 0.35, 0.6 and 0.05 m from the drone's center, so clearance
+    # 0.15, 0.4 and -0.15.
+    beside = [[0.25, 0.85], [0.25, 1.1], [0.25, 0.55]]
+    linear = _proximity_after_step(DQNConfig(proximity_penalty=0.2, **LINEAR_PROXIMITY), beside)
+    assert torch.allclose(linear, torch.tensor([-0.1, 0.0, -0.2]), atol=1e-5)
+    off = _proximity_after_step(DQNConfig(proximity_penalty=0.0), beside)
+    assert torch.allclose(off, torch.zeros(3))
+    inv = _proximity_after_step(DQNConfig(proximity_clearance="true", proximity_travel_ref=0.0), beside)
+    expected = [-0.01 * (1 / 0.15 ** 2 - 1 / 0.3 ** 2), 0.0, -0.01 * (1 / 0.03 ** 2 - 1 / 0.3 ** 2)]
+    assert torch.allclose(inv, torch.tensor(expected), atol=1e-4), inv
+    step = DQNConfig().max_xy_vel * E.DT
+    scaled = _proximity_after_step(DQNConfig(proximity_clearance="true"), beside)
+    assert torch.allclose(scaled, inv * step / 0.15, atol=1e-4), scaled
+    # The sensor clearance sees an obstacle ahead as the true one does and charges nothing for one out of view.
+    # From the pose after the step, centers 0.95 m ahead and 0.9 m away at 120 deg, whose whole disc lies outside
+    # the cameras' 73 deg either side.
+    ahead, side = [[1.2, 0.0], [-0.2, 0.779]], DQNConfig(proximity_travel_ref=0.0)
+    sensor = _proximity_after_step(side, ahead)
+    true = _proximity_after_step(DQNConfig(proximity_clearance="true", proximity_travel_ref=0.0), ahead)
+    assert sensor[0] < 0 and torch.allclose(sensor[0], true[0], atol=1e-3), (sensor, true)
+    assert sensor[1] == 0 and true[1] < 0, (sensor, true)
+    print("  proximity penalty: linear and inverse-square shapes, travel scaling, sensor clearance, v6.3 defaults")
+
+
+def test_coords_mode_rejects_sensor_clearance():
+    try:
+        E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=1, distance_mode="coords")
+        raise AssertionError("coords mode accepted the sensor clearance it cannot compute")
+    except ValueError:
+        pass
+    E.DroneNav2DEnv(2, DQNConfig(proximity_clearance="true"), "cpu", num_obstacles=1, distance_mode="coords")
+    print("  coords mode: refuses the default sensor clearance, accepts the true one")
+
+
 def test_camera_bins_tile_each_camera():
     """Each camera's bins tile its 73 deg, so their minimum is the single-sector reading."""
     n = E.CAMERA_BINS
@@ -289,8 +347,8 @@ def test_outcome_priority():
 
 
 def test_coords_mode_hand_checked():
-    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=2)
-    assert env.state_dim == 8 + E.PREV_ACTION_DIM
+    env = E.DroneNav2DEnv(3, DQNConfig(proximity_clearance="true"), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=2)
+    assert env.state_dim == 8 + E.PREV_ACTION_DIM + E.SIMILARITY_OBS_DIM
     env.reset()
     env.obstacle_xy[:] = env._parked_xy
     env.obstacle_active[:] = True
@@ -313,7 +371,7 @@ def test_coords_mode_hand_checked():
     assert torch.allclose(s[:, :6], expected, atol=1e-5), s
     assert (s[:, 6:-2] == 0).all()  # previous-action slots before any step
     assert torch.allclose(s[0, -2:], torch.tensor([3.0, 4.0])) and torch.allclose(s[1, -2:], torch.tensor([4.0, -3.0]), atol=1e-5)
-    stage0 = E.DroneNav2DEnv(4, DQNConfig(), "cpu", num_obstacles=0, distance_mode="coords")
+    stage0 = E.DroneNav2DEnv(4, DQNConfig(proximity_clearance="true"), "cpu", num_obstacles=0, distance_mode="coords")
     obs, _ = stage0.reset()
     assert obs["dqn_state"].shape == (4, stage0.state_dim) and (obs["dqn_state"][:, :-2] == 0).all()
     print("  coords mode: hand-placed slots, range and parking filters, Stage 0 padding ok")
@@ -322,7 +380,7 @@ def test_coords_mode_hand_checked():
 def test_coords_mode_matches_geometry():
     """Slot 1's length is the nearest active surface distance, and the slots come nearest first."""
     torch.manual_seed(0)
-    env = E.DroneNav2DEnv(2000, DQNConfig(), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=5)
+    env = E.DroneNav2DEnv(2000, DQNConfig(proximity_clearance="true"), "cpu", num_obstacles=5, distance_mode="coords", k_nearest=5)
     s = env.reset()[0]["dqn_state"][:, :15].reshape(-1, 5, 3)
     cx, cr, bx, bh = _env_obstacles(env)
     dist, _ = og._nearest_surface(env.pos, cx, cr, bx, bh)
@@ -351,7 +409,8 @@ def test_pre_reset_state_and_breakdown():
     assert torch.allclose(end["target"][0], torch.tensor([E.REACHED_THRESHOLD + step - 0.02, 0.0]))
     assert not torch.equal(env.target[0], end["target"][0])  # resampled for the next episode
     assert env.last_reward_breakdown["rew_reached"].item() == 100.0
-    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed")), reward)
+    assert torch.allclose(sum(env.last_reward_breakdown[k] for k in ("rew_progress", "rew_reached", "rew_crashed",
+                                                                      "rew_similarity", "rew_proximity")), reward)
     print("  pre-reset snapshot and reward breakdown: hold the finished episode's last step")
 
 
@@ -372,31 +431,57 @@ def test_reset_obs_starts_next_episode():
 
 
 def test_prev_action_in_state():
-    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
+    env = E.DroneNav2DEnv(4, DQNConfig(), "cpu")
     obs, _ = env.reset()
     r = env.num_readings
-    assert env.state_dim == r + E.PREV_ACTION_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
+    assert env.state_dim == r + E.PREV_ACTION_DIM + E.SIMILARITY_OBS_DIM + 2 and (obs["dqn_state"][:, r:r + E.PREV_ACTION_DIM] == 0).all()
     env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes on this step
     env.pos[:] = 0.0
-    # slow straight, mid turning left, fast turning right
-    obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8]), "cpu"))
-    assert torch.equal(obs["dqn_state"][:, r:r + 3], torch.eye(3))
-    assert torch.equal(obs["dqn_state"][:, r + 3:r + 6], torch.eye(3))
+    # stop straight, slow turning left, mid turning right, fast straight
+    obs, _, _, _, info = env.step(discrete_action_to_continuous(torch.tensor([0, 4, 8, 9]), "cpu"))
+    assert torch.equal(obs["dqn_state"][:, r:r + 3], torch.eye(3)[[0, 1, 2, 0]])
+    assert torch.equal(obs["dqn_state"][:, r + 3:r + 7], torch.eye(4))
     expected = torch.tensor(E.SPEED_FRACTIONS) * env.cfg.forward_speed * E.DT
-    assert torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
+    assert env.pos[0].abs().max() == 0 and torch.allclose(env.pos.norm(dim=-1), expected, atol=1e-5)
     assert torch.equal(info["reset_obs"]["dqn_state"], obs["dqn_state"])
     print("  previous action: one-hot after a step, zeros at reset")
+
+
+def test_pose_similarity_penalty():
+    env = E.DroneNav2DEnv(3, DQNConfig(), "cpu")
+    env.reset()
+    env.target[:] = torch.tensor([4.0, 4.0])  # far enough that no env finishes in 21 steps
+    # stop straight, stop turning left, slow straight
+    actions = discrete_action_to_continuous(torch.tensor([0, 1, 3]), "cpu")
+    for t in range(1, E.SIMILARITY_WINDOW + 2):
+        obs, reward, terminated, truncated, _ = env.step(actions)
+        assert not (terminated | truncated).any()
+        if t < E.SIMILARITY_WINDOW:
+            assert (env.pose_similarity == 0).all()
+    turned = E.SIMILARITY_WINDOW * env.cfg.turn_rate * E.DT
+    crawled = E.SIMILARITY_WINDOW * E.SPEED_FRACTIONS[1] * env.cfg.forward_speed * E.DT
+    expected = torch.tensor([1.0, math.exp(-turned / env.SIMILARITY_YAW_SCALE), math.exp(-crawled / env.SIMILARITY_POS_SCALE)])
+    assert torch.allclose(env.pose_similarity, expected, atol=1e-4)
+    assert torch.allclose(env.last_reward_breakdown["rew_similarity"], expected * env.SIMILARITY_PENALTY, atol=1e-5)
+    assert math.isclose(reward[0].item(), env.SIMILARITY_PENALTY, rel_tol=1e-6)  # env 0 never moves, so no progress term
+    r = env.num_readings + E.PREV_ACTION_DIM
+    seen = obs["dqn_state"][:, r:r + E.SIMILARITY_OBS_DIM]
+    assert torch.allclose(seen, torch.tensor([[0.0, 0.0, 0.0], [0.0, 0.0, turned], [crawled, 0.0, 0.0]]), atol=1e-4), seen
+    env._sample_positions(torch.tensor([0]))
+    assert env.pose_similarity[0] == 0 and (env.pose_hist_pos[0] == env.pos[0]).all()
+    assert (env._get_obs()[0]["dqn_state"][0, r:r + E.SIMILARITY_OBS_DIM] == 0).all()
+    print("  similarity penalty: zero for the first window, then by position and heading against the pose a window back")
 
 
 if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_camera_bins_tile_each_camera,
+                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_camera_bins_tile_each_camera,
                  test_front_bins_tell_the_side, test_outcome_priority,
-                 test_coords_mode_hand_checked, test_coords_mode_matches_geometry,
+                 test_coords_mode_hand_checked, test_coords_mode_matches_geometry, test_coords_mode_rejects_sensor_clearance,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
-                 test_prev_action_in_state):
+                 test_prev_action_in_state, test_pose_similarity_penalty):
         print(test.__name__)
         test()
     print("all tests passed")

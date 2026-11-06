@@ -14,16 +14,16 @@ import argparse
 from dataclasses import dataclass, fields
 
 # The forward speeds the actions choose from, as fractions of forward_speed.
-# None is zero, so the drone cannot stop. At 0.2 the slowest turn radius was 0.375 m, too wide to
-# steer off an obstacle already close, and 0.05 brings it to about 0.09 m.
-SPEED_FRACTIONS = (0.05, 0.2, 1.0)
+# At 0.2 the slowest turn radius was 0.375 m, too wide to steer off an obstacle already close,
+# and 0.05 brings it to about 0.09 m. 0 adds a stop, so a turn in place drifts not at all.
+SPEED_FRACTIONS = (0.0, 0.05, 0.2, 1.0)
 
 
 @dataclass
 class DQNConfig:
     # ── Network architecture ──
     state_dim: int = 5
-    num_actions: int = 9  # len(SPEED_FRACTIONS) speeds times 3 turns
+    num_actions: int = 12  # len(SPEED_FRACTIONS) speeds times 3 turns
     hidden_dim: int = 128  # raised from 64 -- testing whether network
                             # capacity was the bottleneck (see experiment log)
 
@@ -36,11 +36,11 @@ class DQNConfig:
     # ── Training hyperparameters (initial values from the LT-DQN paper's
     # Table, some since tuned) ──
     replay_buffer_size: int = 500000  # 50000 held only the last ~780 vector steps of 64 envs
-    batch_size: int = 64
+    batch_size: int = 128
     learning_rate: float = 1e-3
-    gamma: float = 0.98
+    gamma: float = 0.99
     epsilon_start: float = 1.0
-    epsilon_min: float = 0.03
+    epsilon_min: float = 0.01
     epsilon_decay: float = 0.995
     target_update_every: int = 20  # counted in episodes, not gradient steps; unused while target_tau > 0
     # Polyak step toward the online net after every gradient step, 0 for the periodic hard copy.
@@ -52,8 +52,32 @@ class DQNConfig:
     # explore_max_hold 1 gives plain per-step epsilon-greedy.
     explore_hold_mu: float = 2.0
     explore_max_hold: int = 100
+    # Transitions past step replay_full_steps of their episode are stored with probability replay_late_fraction,
+    # except the reaching and crashing steps, so long stuck stretches do not crowd the buffer.
+    replay_full_steps: int = 200
+    replay_late_fraction: float = 0.1
+    # Proportional prioritized replay (Schaul et al. 2016). per_alpha 0 keeps uniform sampling.
+    per_alpha: float = 0.0
+    per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
+    per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
+    # Per-step penalty for passing near an obstacle, 0 from proximity_margin metres of clearance outward and
+    # growing as the clearance shrinks, to proximity_penalty at contact under the linear shape. 0 leaves the reward unchanged.
+    proximity_penalty: float = 0.01
+    proximity_margin: float = 0.3
+    # "inverse_square" charges proximity_penalty * (1/c^2 - 1/proximity_margin^2) instead, 0 at the margin,
+    # with the clearance c held at proximity_min_clearance or more so contact stays finite. Near contact
+    # this is far larger than the linear shape, so proximity_penalty is not comparable between the two.
+    proximity_shape: str = "inverse_square"
+    proximity_min_clearance: float = 0.03
+    # "sensor" takes the clearance from the smallest reading of the pose just reached, so an obstacle out
+    # of view costs nothing. "true" uses the nearest surface, seen or not. The env rejects "sensor" in
+    # coords mode, which has no distance readings, so a coords run passes "true".
+    proximity_clearance: str = "sensor"
+    # Above 0 the penalty is scaled by the distance moved this step over this many metres, so a stopped
+    # drone pays none of it and a slow pass no more in total than a fast one.
+    proximity_travel_ref: float = 0.15
     # Decoupled weight decay through AdamW. 0 keeps plain Adam.
-    weight_decay: float = 0.0
+    weight_decay: float = 1e-4
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:

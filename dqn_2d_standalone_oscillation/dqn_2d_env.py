@@ -52,7 +52,9 @@ from obstacle_geometry import _nearest_surface, obstacle_sector_distances, obsta
 
 DT = 0.1  # seconds per control step, 10 Hz instead of Isaac Lab's 50 Hz
 MAX_SENSE_RANGE = FAR_CLIP  # both distance modes cap at the cameras' far clip
-EPISODE_LENGTH_S = 20.0  # matches the real env's episode_length_s
+# Three times the real env's 20 s episode_length_s. At 20 s about seven in eight evaluation timeouts
+# reached the target when given 60 s.
+EPISODE_LENGTH_S = 60.0
 TARGET_POS_RANGE = 5.0   # start/target sampled uniformly in [-5, 5] on each axis
 REACHED_THRESHOLD = 0.75
 OUT_OF_BOUNDS_DIST = 40.0  # matches the real env's widened boundary
@@ -85,6 +87,8 @@ GROUND_TRUTH_SECTORS = tuple(
 DISTANCE_MODES = ("ground_truth", "camera", "coords")
 DEFAULT_K_NEAREST = 3
 PREV_ACTION_DIM = 3 + len(SPEED_FRACTIONS)
+SIMILARITY_WINDOW = 20  # steps back to the pose the similarity penalty compares against
+SIMILARITY_OBS_DIM = 3  # body-frame dx, dy and heading change since that pose
 
 # Episode outcomes, highest priority first, for a step that meets several conditions.
 OUTCOMES = ("reached", "contact_crash", "out_of_bounds", "timed_out")
@@ -99,6 +103,12 @@ class DroneNav2DEnv:
             raise ValueError(f"distance_mode must be one of {DISTANCE_MODES}, got {distance_mode!r}")
         if not 1 <= k_nearest <= MAX_OBSTACLES:
             raise ValueError(f"k_nearest must be in [1, {MAX_OBSTACLES}], got {k_nearest}")
+        if cfg.proximity_shape not in ("linear", "inverse_square"):
+            raise ValueError(f"proximity_shape must be linear or inverse_square, got {cfg.proximity_shape!r}")
+        if cfg.proximity_clearance not in ("true", "sensor"):
+            raise ValueError(f"proximity_clearance must be true or sensor, got {cfg.proximity_clearance!r}")
+        if cfg.proximity_clearance == "sensor" and distance_mode == "coords":
+            raise ValueError("proximity_clearance sensor needs distance readings, which coords mode does not give")
         self.num_envs = num_envs
         self.cfg = cfg
         self.device = device
@@ -107,7 +117,7 @@ class DroneNav2DEnv:
         self.k_nearest = k_nearest
         # Networks are sized from this, not from cfg.state_dim, because coords mode changes it.
         self.num_readings = {"coords": 3 * k_nearest, "ground_truth": len(GROUND_TRUTH_SECTORS), "camera": 3}[distance_mode]
-        self.state_dim = self.num_readings + PREV_ACTION_DIM + 2
+        self.state_dim = self.num_readings + PREV_ACTION_DIM + SIMILARITY_OBS_DIM + 2
         # One-hot of the last turn (none, left, right) followed by a one-hot of the last speed,
         # all zeros on an episode's first step.
         self.prev_action = torch.zeros(num_envs, PREV_ACTION_DIM, device=device)
@@ -117,6 +127,13 @@ class DroneNav2DEnv:
         self.yaw = torch.zeros(num_envs, device=device)          # (N,) radians
         self.target = torch.zeros(num_envs, 2, device=device)    # (N, 2)
         self.step_count = torch.zeros(num_envs, dtype=torch.long, device=device)
+        # Ring of the last SIMILARITY_WINDOW poses, slot step_count % SIMILARITY_WINDOW holding the pose SIMILARITY_WINDOW steps back.
+        self.pose_hist_pos = torch.zeros(num_envs, SIMILARITY_WINDOW, 2, device=device)
+        self.pose_hist_yaw = torch.zeros(num_envs, SIMILARITY_WINDOW, device=device)
+        self.pose_similarity = torch.zeros(num_envs, device=device)
+        # What the state shows of the pose SIMILARITY_WINDOW steps back, or of the start pose before then,
+        # so the network can see the similarity penalty coming.
+        self.pose_delta = torch.zeros(num_envs, SIMILARITY_OBS_DIM, device=device)
 
         self._circle_r = torch.tensor(CYLINDER_RADII, device=device)
         self._box_half = torch.tensor(BOX_HALF_EXTENTS, device=device).reshape(-1, 2)
@@ -145,6 +162,10 @@ class DroneNav2DEnv:
         self.yaw[env_ids] = torch.rand(n, device=self.device) * 2 * math.pi - math.pi
         self.step_count[env_ids] = 0
         self.prev_action[env_ids] = 0.0
+        self.pose_hist_pos[env_ids] = self.pos[env_ids].unsqueeze(1)
+        self.pose_hist_yaw[env_ids] = self.yaw[env_ids].unsqueeze(1)
+        self.pose_similarity[env_ids] = 0.0
+        self.pose_delta[env_ids] = 0.0
         if self.num_obstacles > 0:
             near = (self.target[env_ids] - self.pos[env_ids]).norm(dim=-1) < MIN_START_TARGET_DIST
             while near.any():
@@ -221,7 +242,7 @@ class DroneNav2DEnv:
         else:
             d = camera_readings(self.pos, self.yaw, *obstacles)
 
-        state = torch.cat([d, self.prev_action, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)  # [obstacle inputs..., prev action, dx, dy]
+        state = torch.cat([d, self.prev_action, self.pose_delta, dx.unsqueeze(-1), dy.unsqueeze(-1)], dim=-1)
         return {"dqn_state": state}, dist
 
     def _nearest_obstacle_points(self, obstacles):
@@ -252,6 +273,7 @@ class DroneNav2DEnv:
         self.pos = self.pos + torch.stack([vx_world, vy_world], dim=-1) * DT
 
         self.step_count += 1
+        self._update_pose_similarity()
         turn = torch.sign(yaw_rate_cmd)
         # Nearest speed, since the tanh squash returns each speed only to within float error.
         speeds = torch.tensor(SPEED_FRACTIONS, device=self.device) * self.cfg.forward_speed
@@ -268,13 +290,14 @@ class DroneNav2DEnv:
         # tunnel through an obstacle because a step is at most max_xy_vel * DT
         # (0.25 m by default), thinner than any obstacle.
         if self.num_obstacles == 0:
-            crashed = torch.zeros_like(reached)
+            surface_dist = torch.full_like(dist, math.inf)
         else:
-            crashed = obstacle_surface_distance(
+            surface_dist = obstacle_surface_distance(
                 self.pos,
                 self.obstacle_xy[:, :NUM_CYLINDERS], self._circle_r,
                 self.obstacle_xy[:, NUM_CYLINDERS:], self._box_half,
-            ) < DRONE_RADIUS
+            )
+        crashed = surface_dist < DRONE_RADIUS
 
         terminated = reached | crashed
         truncated = out_of_bounds | timed_out
@@ -285,8 +308,10 @@ class DroneNav2DEnv:
         self._last_any_contact = crashed
         self._last_out_of_bounds = out_of_bounds
 
+        sensor_dist = obs_dict["dqn_state"][:, :self.num_readings].min(dim=-1).values
         reward, self.last_reward_breakdown = self._compute_reward(
-            dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, return_breakdown=True)
+            dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, surface_dist=surface_dist,
+            sensor_dist=sensor_dist, return_breakdown=True)
 
         # The episode's true last state, which the resample below overwrites
         # for every env that just finished.
@@ -305,6 +330,24 @@ class DroneNav2DEnv:
         # choose the next action from info["reset_obs"] (post-resample).
         return obs_dict, reward, terminated, truncated, {"reset_obs": reset_obs}
 
+    def _update_pose_similarity(self):
+        """Compare the pose just reached with the one SIMILARITY_WINDOW steps back, 1 for the same
+        position and heading, then store the current pose in its slot."""
+        rows = torch.arange(self.num_envs, device=self.device)
+        slot = self.step_count % SIMILARITY_WINDOW
+        offset = self.pos - self.pose_hist_pos[rows, slot]
+        moved = offset.norm(dim=-1)
+        turned = self.yaw - self.pose_hist_yaw[rows, slot]
+        cos_yaw, sin_yaw = torch.cos(self.yaw), torch.sin(self.yaw)
+        self.pose_delta = torch.stack([offset[:, 0] * cos_yaw + offset[:, 1] * sin_yaw,
+                                        -offset[:, 0] * sin_yaw + offset[:, 1] * cos_yaw,
+                                        torch.atan2(torch.sin(turned), torch.cos(turned))], dim=-1)
+        similarity = torch.exp(-moved / self.SIMILARITY_POS_SCALE - self.pose_delta[:, 2].abs() / self.SIMILARITY_YAW_SCALE)
+        # Steps before SIMILARITY_WINDOW have no pose that far back, their slots still hold the start pose.
+        self.pose_similarity = torch.where(self.step_count >= SIMILARITY_WINDOW, similarity, torch.zeros_like(similarity))
+        self.pose_hist_pos[rows, slot] = self.pos
+        self.pose_hist_yaw[rows, slot] = self.yaw
+
     def last_outcomes(self):
         """One OUTCOMES name per env for the latest step(). Only meaningful
         for envs whose episode ended on that step."""
@@ -320,9 +363,18 @@ class DroneNav2DEnv:
     # keeps per-step reward in roughly [-0.225, +0.225], three times the
     # old rew_distance scale.
     K_PROGRESS = 0.15
+    # Standing still forever costs about -15 discounted at gamma 0.98, still above the -50 crash.
+    SIMILARITY_PENALTY = -0.3
+    # Metres of travel over SIMILARITY_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
+    # 0.15 m in that time, so crawling forward keeps about 5% of the penalty.
+    SIMILARITY_POS_SCALE = 0.05
+    # Radians of heading change over SIMILARITY_WINDOW steps that cut the similarity to 1/e. Steepest at no
+    # change, so one 0.08 rad turn step already drops it to 0.67, while (1 + cos) / 2 was flat there and a
+    # stopped drone swinging left and right saw almost no gain from turning one way.
+    SIMILARITY_YAW_SCALE = 0.2
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
-                         vx_signed=None, return_breakdown=False):
+                         vx_signed=None, surface_dist=None, sensor_dist=None, return_breakdown=False):
         """Redesigned reward, replacing the additive rew_distance +
         rew_yaw_aligned + rew_action_rate combination (which had two
         separate, independently-farmable exploits diagnosed via
@@ -371,12 +423,31 @@ class DroneNav2DEnv:
         rew_progress = vx_signed * yaw_cos * self.K_PROGRESS
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
+        # surface_dist and the ground_truth readings are measured from the drone's center, so contact is at DRONE_RADIUS, not 0.
+        # Camera readings start at the camera mounts, so sensor clearance is only approximate in that mode.
+        center_dist = sensor_dist if self.cfg.proximity_clearance == "sensor" else surface_dist
+        if center_dist is None or self.cfg.proximity_penalty == 0:
+            rew_proximity = torch.zeros_like(rew_progress)
+        else:
+            clearance = center_dist - DRONE_RADIUS
+            margin = self.cfg.proximity_margin
+            if self.cfg.proximity_shape == "linear":
+                closeness = (1 - clearance / margin).clamp(0, 1)
+            else:
+                c = clearance.clamp(min=self.cfg.proximity_min_clearance)
+                closeness = (1 / c ** 2 - 1 / margin ** 2).clamp(min=0)
+            rew_proximity = -self.cfg.proximity_penalty * closeness
+            if self.cfg.proximity_travel_ref > 0:
+                rew_proximity = rew_proximity * vx_signed * DT / self.cfg.proximity_travel_ref
 
-        total = rew_progress + rew_reached + rew_crashed
+        rew_similarity = self.pose_similarity * self.SIMILARITY_PENALTY
+
+        total = rew_progress + rew_reached + rew_crashed + rew_similarity + rew_proximity
         if return_breakdown:
             return total, {
                 "rew_progress": rew_progress, "rew_reached": rew_reached,
-                "rew_crashed": rew_crashed, "yaw_cos": yaw_cos, "vx_signed": vx_signed,
+                "rew_crashed": rew_crashed, "rew_similarity": rew_similarity, "rew_proximity": rew_proximity,
+                "yaw_cos": yaw_cos, "vx_signed": vx_signed,
             }
         return total
 

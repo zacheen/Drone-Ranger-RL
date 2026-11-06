@@ -15,7 +15,7 @@ import torch
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import QNetwork, ACTION_NAMES, NUM_TURNS
-from dqn_2d_env import GROUND_TRUTH_SECTORS, PREV_ACTION_DIM
+from dqn_2d_env import GROUND_TRUTH_SECTORS, PREV_ACTION_DIM, SIMILARITY_OBS_DIM
 
 
 SWEEP_READINGS = {"ground_truth": len(GROUND_TRUTH_SECTORS), "camera": 3}
@@ -26,11 +26,11 @@ def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float
     weights = torch.load(checkpoint_path, map_location=device)
     # Checked against the stated mode rather than inferred from the size, because a coords checkpoint
     # can have the same input count as a ground_truth one and needs zeros, not 10.0, for an empty scene.
-    num_readings = weights["fc1.weight"].shape[1] - PREV_ACTION_DIM - 2
+    num_readings = weights["fc1.weight"].shape[1] - PREV_ACTION_DIM - SIMILARITY_OBS_DIM - 2
     if num_readings != SWEEP_READINGS[distance_mode]:
         raise SystemExit(f"distance_mode {distance_mode} has {SWEEP_READINGS[distance_mode]} obstacle inputs, "
                          f"the checkpoint has {num_readings}")
-    q_net = QNetwork(state_dim=num_readings + PREV_ACTION_DIM + 2, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
+    q_net = QNetwork(state_dim=num_readings + PREV_ACTION_DIM + SIMILARITY_OBS_DIM + 2, action_dim=cfg.num_actions, hidden_dim=cfg.hidden_dim)
     q_net.load_state_dict(weights)
     q_net.to(device)
     q_net.eval()
@@ -50,7 +50,7 @@ def sweep(checkpoint_path: str, cfg: DQNConfig, distances, angle_step_deg: float
             ang_rad = math.radians(float(ang_deg))
             dx = dist * math.cos(ang_rad)
             dy = dist * math.sin(ang_rad)
-            states.append([10.0] * num_readings + [0.0] * PREV_ACTION_DIM + [dx, dy])  # as on an episode's first step
+            states.append([10.0] * num_readings + [0.0] * (PREV_ACTION_DIM + SIMILARITY_OBS_DIM) + [dx, dy])  # as on an episode's first step
         state_tensor = torch.tensor(states, dtype=torch.float32, device=device)
 
         with torch.no_grad():
