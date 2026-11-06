@@ -745,6 +745,7 @@ The stop line moved through point releases on `baseline_stop_v6` before v7.
 | baseline_stop_v6.2 | `44729a8` | AdamW weight decay 1e-4 as the default | STOP6WD |
 | baseline_stop_v6.3 | `a148a7e` | inverse-square proximity penalty 0.01 on the sensor clearance in place of the linear 0.2 | STOP6WDPROXINV2X, with STOP6WDPROXINV2XFULL as its control trained from 0 obstacles |
 | `baseline_stop_v7` | `13fadbd` | batch 128 instead of 64, exploration floor 0.01 instead of 0.03, gamma 0.99 as the default | STOP63EPS01B128 |
+| baseline_stop_v7.1 | `17c316b` | AdamW weight decay 1e-3 instead of 1e-4 | STOP63WD1E3FULL |
 
 Gamma 0.99 changes no result. Every stop-line arm since baseline_stop_v5 already passed it as a flag, and v7 only makes the code default match.
 
@@ -764,9 +765,25 @@ Gamma 0.99 changes no result. Every stop-line arm since baseline_stop_v5 already
 - STOP63EPS01B128 met more gaps than the control and still passed them more often, so its lead does not come from avoiding gaps.
 - Its best checkpoints failed 7 times by crashing and 11 times by stalling per 10,000 episodes, against 16 and 37 for the control.
 - Of its 60 failures over the 3 runs, 40 stalled until the timeout about 3.5 m from the target and 18 crashed in a gap at high speed. So the stall is rarer but not gone.
-- STOP63EPS01B128FULL trains v7 from 0 obstacles and is the check that the gain holds when trained in from the start.
+- STOP63EPS01B128FULL trains v7 from 0 obstacles. It scored 99.71 best and 99.37 final, with the hard group at 97.87 (2920) and 96.84, so the gain holds when trained in from the start.
 
 **The batch size.** The user decided that the larger batch goes into v7. If a later setup runs short of memory, such as a larger network or the move to Isaac Lab, shrink the batch first and measure what that costs.
+
+**The weight decay.** v7.1 raises the decay from 1e-4 to 1e-3. At a learning rate of 1e-3 one 3000-episode stage leaves a weight at about 0.97 of its value under 1e-4 and about 0.74 under 1e-3. Each arm below trained from 0 obstacles on baseline_stop_v6.3 and is paired by run with STOP6WDPROXINV2XFULL. The exception is STOP7WD015FULL, which trained on v7 and is paired with STOP63EPS01B128FULL. The numbers are 8 obstacles, as in the table above.
+
+| Arm | Decay | Change in best / final | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|
+| STOP6WDPROXINV2XFULL | 1e-4 | control | 96.20 (2809) / 96.41 | 86.85 |
+| STOP63WD3E4FULL | 3e-4 | -0.12 / +0.14 | 95.97 (2828) / 94.64 | 85.37 |
+| STOP63WD1E3FULL | 1e-3 | -0.05 / -0.07 | 96.58 (2686) / 96.46 | 92.33 |
+| STOP63WD3E3FULL | 3e-3 | +0.10 / -4.36 | 95.73 (2729) / 89.87 | 87.21 |
+| STOP7WD015FULL | 0.015, 2 runs | -0.18 / -6.69 | not replayed | not replayed |
+
+- 1e-4, 3e-4 and 1e-3 cannot be told apart. Within one run the hard group swings by 3 to 5 points between neighbouring checkpoints, from 93.5 to 98.6 in 1e-3 r1, which is more than any gap between the three decays. 3e-4 has the lowest hard final only because none of its last 3 checkpoints landed on a high point.
+- 1e-3 went into the baseline because it was not clearly worse, as the user had decided beforehand, not because it measured better. Its lead in the 0.4 to 0.6 m gaps rests on fewer gaps than the control met, 326 against 426, and is within the same swings.
+- From 3e-3 up, one run in each arm collapsed to 86.65 and 86.25 final, so the decay stops at 1e-3.
+- v7.1 is a point release, because it changes one default value and no code path.
+- STOP7WD3E4FULL trains 3e-4 on v7 as the control of the LayerNorm arm.
 
 ## Evidence on the two core problems
 
@@ -864,7 +881,7 @@ My current understanding has three parts.
 
 ## Next steps
 
-1. Settle the weight decay of baseline_stop_v7 first, since its value affects many other experiments. 1e-4 shrinks the weights by only about 3% per 3000-episode stage. STOP63WD1E3FULL trains 1e-3 from 0 obstacles, and its result picks the next value to try. The user decided that 1e-3 goes into the baseline unless it is clearly worse. Then confirm with STOP63EPS01B128FULL that batch 128 and the exploration floor of 0.01 keep their gain when trained in from the start.
+1. Measure LayerNorm in the Q network, the second method under step 4. STOP7LNWD3E4FULL trains it from 0 obstacles on v7 with decay 3e-4, which measures the same as 1e-4 and 1e-3, and STOP7WD3E4FULL is its control. If LayerNorm helps, rerun it at 3e-3. Without LayerNorm, 3e-3 made one run in three collapse, and LayerNorm cancels the overall scale of the weights before each ReLU, so a strong decay should stop changing what the network outputs. The user chose this next step.
 2. Check whether the stopped timeouts with the target behind the drone in STOP6 come from the narrower field of view, by replaying baseline_stop_v5 at the same stage.
 3. Separate the stop action from the long-episode package on narrow gaps, by running the hard group on V4LONGG99, which has the long-episode package without the stop.
 4. Try methods that bring final closer to best. The 8-obstacle stage now shows late dips of 20 to 40 points, so the gap between best and final is large enough to measure. They are listed in order of cost.
