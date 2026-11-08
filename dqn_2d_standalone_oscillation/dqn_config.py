@@ -38,6 +38,12 @@ class DQNConfig:
     replay_buffer_size: int = 500000  # 50000 held only the last ~780 vector steps of 64 envs
     batch_size: int = 128
     learning_rate: float = 1e-3
+    # Each run (one curriculum stage) holds learning_rate until episode lr_decay_start * (num_episodes - 1), then
+    # cosine-anneals it to learning_rate * lr_final_fraction by its last episode.
+    # WARNING: at lr_final_fraction 1.0 the optimizer's lr is left untouched (a resumed optimizer's lr survives);
+    # any other value overwrites it from learning_rate every episode.
+    lr_final_fraction: float = 1.0
+    lr_decay_start: float = 0.6667
     gamma: float = 0.99
     # Rewards summed per replay transition before bootstrapping, discounted by gamma ** (number summed).
     n_step: int = 1
