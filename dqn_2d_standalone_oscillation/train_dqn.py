@@ -32,6 +32,7 @@ from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
 from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
 from exploration import HeldRandomExploration
+from lr_schedule import scheduled_lr
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -225,6 +226,10 @@ outcome_window = deque(maxlen=WINDOW_SIZE)
 global_train_step = 0
 
 for episode in range(args.num_episodes):
+    if cfg.lr_final_fraction != 1.0:
+        lr = scheduled_lr(cfg.learning_rate, cfg.lr_final_fraction, cfg.lr_decay_start, episode, args.num_episodes)
+        for group in optimizer.param_groups:
+            group["lr"] = lr
     for step in range(args.max_steps_per_episode):
         with torch.no_grad():
             q_values = q_net(state)
@@ -304,6 +309,7 @@ for episode in range(args.num_episodes):
     writer.add_scalar("Train/mean_reward", mean_return, episode)
     writer.add_scalar("Train/mean_reward_ma50", ma50, episode)
     writer.add_scalar("Train/epsilon", epsilon, episode)
+    writer.add_scalar("Train/learning_rate", optimizer.param_groups[0]["lr"], episode)
     writer.add_scalar("Train/buffer_size", len(replay_buffer), episode)
 
     total_outcomes = len(outcome_window)
