@@ -61,16 +61,16 @@ class DQNConfig:
     per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
     per_eps: float = 1e-3  # added to |TD error| so a transition fitted exactly can still be drawn
     # Weight on the progress reward v * cos(heading error). The discrete actions cap v at forward_speed
-    # (1.5 m/s), so at 0.15 the reward stays within about [-0.225, +0.225]. A raw continuous action can
+    # (1.5 m/s), so at 0.075 the reward stays within about [-0.1125, +0.1125]. A raw continuous action can
     # reach max_xy_vel (2.5 m/s), which scales that range by 2.5 / 1.5.
-    progress_weight: float = 0.15
+    progress_weight: float = 0.075
     # "velocity" pays progress_weight * v * cos(heading error), using the commanded speed. "distance" pays
     # progress_weight / DT times the drop in distance to the target over the step, the same rate per metre,
     # from the positions alone, so it stays unbiased where the real speed falls short of the command.
     progress_mode: str = "distance"
     # Per-step penalty for passing near an obstacle, 0 from proximity_margin metres of clearance outward and
     # growing as the clearance shrinks, to proximity_penalty at contact under the linear shape. 0 leaves the reward unchanged.
-    proximity_penalty: float = 0.01
+    proximity_penalty: float = 0.02
     proximity_margin: float = 0.3
     # "inverse_square" charges proximity_penalty * (1/c^2 - 1/proximity_margin^2) instead, 0 at the margin,
     # with the clearance c held at proximity_min_clearance or more so contact stays finite. Near contact
