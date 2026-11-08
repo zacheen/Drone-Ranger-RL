@@ -67,7 +67,7 @@ class DQNConfig:
     # "velocity" pays progress_weight * v * cos(heading error), using the commanded speed. "distance" pays
     # progress_weight / DT times the drop in distance to the target over the step, the same rate per metre,
     # from the positions alone, so it stays unbiased where the real speed falls short of the command.
-    progress_mode: str = "velocity"
+    progress_mode: str = "distance"
     # Per-step penalty for passing near an obstacle, 0 from proximity_margin metres of clearance outward and
     # growing as the clearance shrinks, to proximity_penalty at contact under the linear shape. 0 leaves the reward unchanged.
     proximity_penalty: float = 0.01

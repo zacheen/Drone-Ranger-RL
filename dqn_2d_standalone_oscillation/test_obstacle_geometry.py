@@ -312,8 +312,9 @@ def test_progress_weight():
 def test_progress_distance_mode():
     """The distance mode pays progress_weight / DT per metre the step closes, so a straight step matches the
     velocity mode, a step across the target direction is charged for the small distance it adds, and a bad mode is refused."""
+    assert DQNConfig().progress_mode == "distance"
     straight = _progress_after_step(DQNConfig(progress_mode="distance"))
-    assert torch.allclose(straight, _progress_after_step(DQNConfig()), atol=1e-4), straight
+    assert torch.allclose(straight, _progress_after_step(DQNConfig(progress_mode="velocity")), atol=1e-4), straight
     env = E.DroneNav2DEnv(1, DQNConfig(progress_mode="distance"), "cpu", num_obstacles=0)
     env.reset()
     env.pos[:] = 0.0
