@@ -103,6 +103,8 @@ class DroneNav2DEnv:
             raise ValueError(f"distance_mode must be one of {DISTANCE_MODES}, got {distance_mode!r}")
         if not 1 <= k_nearest <= MAX_OBSTACLES:
             raise ValueError(f"k_nearest must be in [1, {MAX_OBSTACLES}], got {k_nearest}")
+        if cfg.progress_mode not in ("velocity", "distance"):
+            raise ValueError(f"progress_mode must be velocity or distance, got {cfg.progress_mode!r}")
         if cfg.proximity_shape not in ("linear", "inverse_square"):
             raise ValueError(f"proximity_shape must be linear or inverse_square, got {cfg.proximity_shape!r}")
         if cfg.proximity_clearance not in ("true", "sensor"):
@@ -264,6 +266,7 @@ class DroneNav2DEnv:
         physical vx/yaw_rate values match exactly."""
         vx_cmd = ((torch.tanh(actions_continuous[:, 0]) + 1.0) / 2.0) * self.cfg.max_xy_vel
         yaw_rate_cmd = torch.tanh(actions_continuous[:, 2]) * self.cfg.max_yaw_rate
+        dist_before = torch.norm(self.target - self.pos, dim=-1)
 
         # Pure kinematic integration -- no thrust, no attitude dynamics.
         self.yaw = self.yaw + yaw_rate_cmd * DT
@@ -311,7 +314,7 @@ class DroneNav2DEnv:
         sensor_dist = obs_dict["dqn_state"][:, :self.num_readings].min(dim=-1).values
         reward, self.last_reward_breakdown = self._compute_reward(
             dist, actions_continuous, reached, crashed, vx_signed=vx_cmd, surface_dist=surface_dist,
-            sensor_dist=sensor_dist, return_breakdown=True)
+            sensor_dist=sensor_dist, dist_before=dist_before, return_breakdown=True)
 
         # The episode's true last state, which the resample below overwrites
         # for every env that just finished.
@@ -369,7 +372,7 @@ class DroneNav2DEnv:
     SIMILARITY_YAW_SCALE = 0.2
 
     def _compute_reward(self, dist, actions_continuous, reached, crashed,
-                         vx_signed=None, surface_dist=None, sensor_dist=None, return_breakdown=False):
+                         vx_signed=None, surface_dist=None, sensor_dist=None, return_breakdown=False, dist_before=None):
         """Redesigned reward, replacing the additive rew_distance +
         rew_yaw_aligned + rew_action_rate combination (which had two
         separate, independently-farmable exploits diagnosed via
@@ -389,9 +392,12 @@ class DroneNav2DEnv:
         there's no longer an incentive to flip-flop between actions, so
         the smoothness penalty that existed specifically to suppress that
         is no longer needed.
+
+        This describes progress_mode "velocity". "distance" pays the drop in target distance instead, and
+        turning in place still pays 0 there.
         """
         if vx_signed is None:
-            # vx_signed: the actual physical forward speed for this step
+            # vx_signed: the commanded forward speed for this step
             # (0 for turn actions, forward_speed for the forward action).
             # Callers that already computed vx_cmd in step() should pass
             # it in directly rather than re-deriving it here.
@@ -415,7 +421,10 @@ class DroneNav2DEnv:
         # behind the near-target orbiting (hypothesis: turn action's fixed
         # angular step size, not reward shape, prevents settling exactly
         # at zero heading error -- see test_turn_granularity.py).
-        rew_progress = vx_signed * yaw_cos * self.cfg.progress_weight
+        if self.cfg.progress_mode == "distance":
+            rew_progress = (dist_before - dist) * self.cfg.progress_weight / DT
+        else:
+            rew_progress = vx_signed * yaw_cos * self.cfg.progress_weight
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
         # surface_dist and the ground_truth readings are measured from the drone's center, so contact is at DRONE_RADIUS, not 0.

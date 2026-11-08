@@ -64,6 +64,10 @@ class DQNConfig:
     # (1.5 m/s), so at 0.15 the reward stays within about [-0.225, +0.225]. A raw continuous action can
     # reach max_xy_vel (2.5 m/s), which scales that range by 2.5 / 1.5.
     progress_weight: float = 0.15
+    # "velocity" pays progress_weight * v * cos(heading error), using the commanded speed. "distance" pays
+    # progress_weight / DT times the drop in distance to the target over the step, the same rate per metre,
+    # from the positions alone, so it stays unbiased where the real speed falls short of the command.
+    progress_mode: str = "velocity"
     # Per-step penalty for passing near an obstacle, 0 from proximity_margin metres of clearance outward and
     # growing as the clearance shrinks, to proximity_penalty at contact under the linear shape. 0 leaves the reward unchanged.
     proximity_penalty: float = 0.01

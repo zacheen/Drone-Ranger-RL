@@ -309,6 +309,28 @@ def test_progress_weight():
     print("  progress weight: default 0.15, scales the progress reward")
 
 
+def test_progress_distance_mode():
+    """The distance mode pays progress_weight / DT per metre the step closes, so a straight step matches the
+    velocity mode, a step across the target direction is charged for the small distance it adds, and a bad mode is refused."""
+    straight = _progress_after_step(DQNConfig(progress_mode="distance"))
+    assert torch.allclose(straight, _progress_after_step(DQNConfig()), atol=1e-4), straight
+    env = E.DroneNav2DEnv(1, DQNConfig(progress_mode="distance"), "cpu", num_obstacles=0)
+    env.reset()
+    env.pos[:] = 0.0
+    env.yaw[:] = 0.0
+    env.target[:] = torch.tensor([0.0, 1.0])
+    env.step(torch.tensor([[10.0, 0.0, 0.0]]))
+    step = DQNConfig().max_xy_vel * E.DT
+    expected = (1.0 - math.hypot(1.0, step)) * 0.15 / E.DT
+    assert torch.allclose(env.last_reward_breakdown["rew_progress"], torch.tensor([expected]), atol=1e-5)
+    try:
+        E.DroneNav2DEnv(1, DQNConfig(progress_mode="heading"), "cpu")
+        raise AssertionError("an unknown progress_mode was accepted")
+    except ValueError:
+        pass
+    print("  progress distance mode: straight step matches velocity, sideways step pays the distance added")
+
+
 def test_coords_mode_rejects_sensor_clearance():
     try:
         E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=1, distance_mode="coords")
@@ -497,7 +519,7 @@ if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_progress_weight, test_camera_bins_tile_each_camera,
+                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_progress_weight, test_progress_distance_mode, test_camera_bins_tile_each_camera,
                  test_front_bins_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry, test_coords_mode_rejects_sensor_clearance,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
