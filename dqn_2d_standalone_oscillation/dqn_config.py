@@ -46,6 +46,8 @@ class DQNConfig:
     lr_final_fraction: float = 0.1
     lr_decay_start: float = 0.6667
     gamma: float = 0.99
+    # Rewards summed per replay transition before bootstrapping, discounted by gamma ** (number summed).
+    n_step: int = 1
     epsilon_start: float = 1.0
     epsilon_min: float = 0.01
     epsilon_decay: float = 0.995

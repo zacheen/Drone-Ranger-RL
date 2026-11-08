@@ -32,6 +32,7 @@ from dqn_config import DQNConfig, add_config_args, config_from_args
 from dqn_action_space import discrete_action_to_continuous, QNetwork
 from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
 from exploration import HeldRandomExploration
+from nstep import NStepAccumulator
 from lr_schedule import scheduled_lr
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -78,12 +79,13 @@ class ReplayBuffer:
         self.r = torch.zeros(capacity)
         self.s_next = torch.zeros(capacity, state_dim)
         self.done = torch.zeros(capacity)
+        self.discount = torch.zeros(capacity)  # gamma ** m per row, stays 0 unless an n-step push wrote it, so the one-step target must not read it
         self.priority = torch.zeros(capacity)
         self.max_priority = 1.0  # given to new transitions, so each is drawn at least about as often as any other
         self.pos = 0  # next slot to write
         self.size = 0
 
-    def push(self, s, a, r, s_next, done):
+    def push(self, s, a, r, s_next, done, discount=None):
         """One row per env, written in env order, as consecutive appends to a deque would be."""
         n = s.shape[0]
         # Only the last `capacity` rows survive, as in a deque. Writing all of a larger batch would give
@@ -95,6 +97,8 @@ class ReplayBuffer:
         self.r[slots] = r[first:].cpu()
         self.s_next[slots] = s_next[first:].cpu()
         self.done[slots] = done[first:].cpu().float()
+        if discount is not None:
+            self.discount[slots] = discount[first:].cpu()
         self.priority[slots] = self.max_priority
         self.pos = (self.pos + n) % self.capacity
         self.size = min(self.size + n, self.capacity)
@@ -105,7 +109,7 @@ class ReplayBuffer:
         oldest = (self.pos - self.size) % self.capacity
         slots = (torch.tensor(random.sample(range(self.size), batch_size)) + oldest) % self.capacity
         return (self.s[slots], self.a[slots].to(device), self.r[slots].to(device),
-                self.s_next[slots], self.done[slots].to(device))
+                self.s_next[slots], self.done[slots].to(device), self.discount[slots].to(device))
 
     def sample_prioritized(self, batch_size, beta):
         """Draw slots with probability proportional to priority, with replacement.
@@ -121,7 +125,7 @@ class ReplayBuffer:
         weights = (self.priority[slots].double() / stored.min()) ** -beta
         weights = weights.float().to(device)
         return (self.s[slots], self.a[slots].to(device), self.r[slots].to(device),
-                self.s_next[slots], self.done[slots].to(device), slots, weights)
+                self.s_next[slots], self.done[slots].to(device), self.discount[slots].to(device), slots, weights)
 
     def update_priorities(self, slots, td_error):
         # A slot drawn twice in one batch gets the same TD error both times, so duplicate writes agree.
@@ -159,6 +163,9 @@ elif args.resume_from:
     print("[DQN] resumed weights but NOT optimizer state (no --resume_optimizer_from given) -- Adam's per-parameter momentum starts fresh this run")
 replay_buffer = ReplayBuffer(cfg.replay_buffer_size, env.state_dim, cfg.per_alpha, cfg.per_eps)
 use_per = cfg.per_alpha > 0
+# None keeps the one-step path exactly as before, so n_step 1 trains bitwise unchanged.
+nstep = (NStepAccumulator(cfg.n_step, cfg.gamma, args.num_envs, env.state_dim, device)
+         if cfg.n_step > 1 else None)
 
 epsilon = cfg.resume_epsilon if args.resume_from else cfg.epsilon_start
 explorer = HeldRandomExploration(args.num_envs, cfg.num_actions, cfg.explore_hold_mu, cfg.explore_max_hold, device)
@@ -246,9 +253,18 @@ for episode in range(args.num_episodes):
         # bounds just cuts the episode off, so its target still bootstraps from next_state.
         terminal = terminated
 
-        keep = ((step_in_episode <= cfg.replay_full_steps) | terminal
-                | (torch.rand(args.num_envs, device=device) < cfg.replay_late_fraction))
-        replay_buffer.push(state[keep], action_idx[keep], reward[keep], next_state[keep], terminal[keep])
+        if nstep is None:
+            keep = ((step_in_episode <= cfg.replay_full_steps) | terminal
+                    | (torch.rand(args.num_envs, device=device) < cfg.replay_late_fraction))
+            replay_buffer.push(state[keep], action_idx[keep], reward[keep], next_state[keep], terminal[keep])
+        else:
+            # Windows are built from every raw step, and only the emitted n-step transitions are
+            # subsampled, judged by the step their first transition was taken at.
+            env_i, s_n, a_n, r_n, s_next_n, term_n, disc_n, start_n = nstep.add(
+                state, action_idx, reward, next_state, terminal, done, step_in_episode)
+            late = torch.rand(args.num_envs, device=device)[env_i] < cfg.replay_late_fraction
+            keep = (start_n <= cfg.replay_full_steps) | term_n | late
+            replay_buffer.push(s_n[keep], a_n[keep], r_n[keep], s_next_n[keep], term_n[keep], disc_n[keep])
 
         if done.any():
             outcomes = env.last_outcomes()
@@ -261,9 +277,9 @@ for episode in range(args.num_episodes):
         if len(replay_buffer) >= cfg.batch_size:
             if use_per:
                 beta = cfg.per_beta_start + (1 - cfg.per_beta_start) * episode / max(args.num_episodes - 1, 1)
-                s, a, r, s_next, d, slots, is_weight = replay_buffer.sample_prioritized(cfg.batch_size, beta)
+                s, a, r, s_next, d, disc, slots, is_weight = replay_buffer.sample_prioritized(cfg.batch_size, beta)
             else:
-                s, a, r, s_next, d = replay_buffer.sample(cfg.batch_size)
+                s, a, r, s_next, d, disc = replay_buffer.sample(cfg.batch_size)
             s, s_next = s.to(device), s_next.to(device)
 
             q_pred = q_net(s).gather(1, a.unsqueeze(-1)).squeeze(-1)
@@ -271,7 +287,7 @@ for episode in range(args.num_episodes):
                 # Double DQN: the online net picks the next joint action, the target net scores it.
                 next_a = q_net(s_next).argmax(dim=-1, keepdim=True)
                 q_next_max = q_target(s_next).gather(1, next_a).squeeze(-1)
-                q_target_value = r + cfg.gamma * q_next_max * (1 - d)
+                q_target_value = r + (cfg.gamma if nstep is None else disc) * q_next_max * (1 - d)
             if use_per:
                 td_error = q_target_value - q_pred
                 loss = (is_weight * td_error.pow(2)).mean()
