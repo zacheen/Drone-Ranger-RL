@@ -358,11 +358,6 @@ class DroneNav2DEnv:
         # argmax returns the first True, so OUTCOMES order is the priority order.
         return [OUTCOMES[i] for i in flags.int().argmax(dim=-1).tolist()]
 
-    # Weight on the multiplicative progress term. v*cos(theta) ranges
-    # [-forward_speed, +forward_speed] (1.5 at default settings), so this
-    # keeps per-step reward in roughly [-0.225, +0.225], three times the
-    # old rew_distance scale.
-    K_PROGRESS = 0.15
     # Standing still forever costs about -15 discounted at gamma 0.98, still above the -50 crash.
     SIMILARITY_PENALTY = -0.3
     # Metres of travel over SIMILARITY_WINDOW steps that cut the similarity to 1/e. The slowest speed covers
@@ -420,7 +415,7 @@ class DroneNav2DEnv:
         # behind the near-target orbiting (hypothesis: turn action's fixed
         # angular step size, not reward shape, prevents settling exactly
         # at zero heading error -- see test_turn_granularity.py).
-        rew_progress = vx_signed * yaw_cos * self.K_PROGRESS
+        rew_progress = vx_signed * yaw_cos * self.cfg.progress_weight
         rew_reached = reached.float() * 100.0
         rew_crashed = crashed.float() * -50.0
         # surface_dist and the ground_truth readings are measured from the drone's center, so contact is at DRONE_RADIUS, not 0.

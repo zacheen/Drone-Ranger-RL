@@ -289,6 +289,26 @@ def test_proximity_penalty():
     print("  proximity penalty: linear and inverse-square shapes, travel scaling, sensor clearance, v6.3 defaults")
 
 
+def _progress_after_step(cfg):
+    """rew_progress after one step along +x at max_xy_vel (raw action 10 saturates tanh), toward a target 20 m ahead."""
+    env = E.DroneNav2DEnv(1, cfg, "cpu", num_obstacles=0)
+    env.reset()
+    env.pos[:] = 0.0
+    env.yaw[:] = 0.0
+    env.target[:] = torch.tensor([20.0, 0.0])
+    env.step(torch.tensor([[10.0, 0.0, 0.0]]))
+    return env.last_reward_breakdown["rew_progress"]
+
+
+def test_progress_weight():
+    assert DQNConfig().progress_weight == 0.15
+    base = _progress_after_step(DQNConfig())
+    assert torch.allclose(base, torch.tensor([0.15 * DQNConfig().max_xy_vel]), atol=1e-4), base
+    half = _progress_after_step(DQNConfig(progress_weight=0.075))
+    assert torch.allclose(half, base / 2, atol=1e-6), (half, base)
+    print("  progress weight: default 0.15, scales the progress reward")
+
+
 def test_coords_mode_rejects_sensor_clearance():
     try:
         E.DroneNav2DEnv(2, DQNConfig(), "cpu", num_obstacles=1, distance_mode="coords")
@@ -477,7 +497,7 @@ if __name__ == "__main__":
     for test in (test_hand_checked_cases, test_surface_distance, test_matches_brute_force,
                  test_isaac_constants_match,
                  test_stage0_shortcuts_match_geometry, test_layout_invariants,
-                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_camera_bins_tile_each_camera,
+                 test_contact_crash_and_obs_wiring, test_proximity_penalty, test_progress_weight, test_camera_bins_tile_each_camera,
                  test_front_bins_tell_the_side, test_outcome_priority,
                  test_coords_mode_hand_checked, test_coords_mode_matches_geometry, test_coords_mode_rejects_sensor_clearance,
                  test_pre_reset_state_and_breakdown, test_reset_obs_starts_next_episode,
