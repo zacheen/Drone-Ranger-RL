@@ -41,8 +41,9 @@ class DQNConfig:
     # Each run (one curriculum stage) holds learning_rate until episode lr_decay_start * (num_episodes - 1), then
     # cosine-anneals it to learning_rate * lr_final_fraction by its last episode.
     # WARNING: at lr_final_fraction 1.0 the optimizer's lr is left untouched (a resumed optimizer's lr survives);
-    # any other value overwrites it from learning_rate every episode.
-    lr_final_fraction: float = 1.0
+    # any other value overwrites it from learning_rate every episode, so a resumed run restarts the schedule.
+    # --lr_final_fraction 1.0 turns the taper off.
+    lr_final_fraction: float = 0.1
     lr_decay_start: float = 0.6667
     gamma: float = 0.99
     epsilon_start: float = 1.0
