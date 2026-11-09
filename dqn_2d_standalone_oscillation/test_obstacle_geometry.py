@@ -261,10 +261,10 @@ def _proximity_after_step(cfg, obstacles):
 def test_proximity_penalty():
     """The linear penalty ramps from 0 at proximity_margin of clearance to proximity_penalty at contact, the
     inverse-square one charges proximity_penalty * (1/c^2 - 1/margin^2) with c held at proximity_min_clearance, and
-    the defaults are baseline_stop_v7.4's inverse-square 0.02 on the sensor clearance scaled by travel."""
+    the defaults are baseline_stop_v7.7's inverse-square 0.03 on the sensor clearance scaled by travel."""
     cfg = DQNConfig()
     assert (cfg.proximity_penalty, cfg.proximity_margin, cfg.proximity_shape, cfg.proximity_min_clearance,
-            cfg.proximity_clearance, cfg.proximity_travel_ref) == (0.02, 0.3, "inverse_square", 0.03, "sensor", 0.15)
+            cfg.proximity_clearance, cfg.proximity_travel_ref) == (0.03, 0.3, "inverse_square", 0.03, "sensor", 0.15)
     # Beside where the 0.25 m step ends, surface 0.35, 0.6 and 0.05 m from the drone's center, so clearance
     # 0.15, 0.4 and -0.15.
     beside = [[0.25, 0.85], [0.25, 1.1], [0.25, 0.55]]
@@ -273,7 +273,7 @@ def test_proximity_penalty():
     off = _proximity_after_step(DQNConfig(proximity_penalty=0.0), beside)
     assert torch.allclose(off, torch.zeros(3))
     inv = _proximity_after_step(DQNConfig(proximity_clearance="true", proximity_travel_ref=0.0), beside)
-    expected = [-0.02 * (1 / 0.15 ** 2 - 1 / 0.3 ** 2), 0.0, -0.02 * (1 / 0.03 ** 2 - 1 / 0.3 ** 2)]
+    expected = [-0.03 * (1 / 0.15 ** 2 - 1 / 0.3 ** 2), 0.0, -0.03 * (1 / 0.03 ** 2 - 1 / 0.3 ** 2)]
     assert torch.allclose(inv, torch.tensor(expected), atol=1e-4), inv
     step = DQNConfig().max_xy_vel * E.DT
     scaled = _proximity_after_step(DQNConfig(proximity_clearance="true"), beside)
@@ -286,7 +286,7 @@ def test_proximity_penalty():
     true = _proximity_after_step(DQNConfig(proximity_clearance="true", proximity_travel_ref=0.0), ahead)
     assert sensor[0] < 0 and torch.allclose(sensor[0], true[0], atol=1e-3), (sensor, true)
     assert sensor[1] == 0 and true[1] < 0, (sensor, true)
-    print("  proximity penalty: linear and inverse-square shapes, travel scaling, sensor clearance, v7.4 defaults")
+    print("  proximity penalty: linear and inverse-square shapes, travel scaling, sensor clearance, v7.7 defaults")
 
 
 def _progress_after_step(cfg):
@@ -301,12 +301,12 @@ def _progress_after_step(cfg):
 
 
 def test_progress_weight():
-    assert DQNConfig().progress_weight == 0.075
+    assert DQNConfig().progress_weight == 0.05
     base = _progress_after_step(DQNConfig())
-    assert torch.allclose(base, torch.tensor([0.075 * DQNConfig().max_xy_vel]), atol=1e-4), base
-    half = _progress_after_step(DQNConfig(progress_weight=0.0375))
+    assert torch.allclose(base, torch.tensor([0.05 * DQNConfig().max_xy_vel]), atol=1e-4), base
+    half = _progress_after_step(DQNConfig(progress_weight=0.025))
     assert torch.allclose(half, base / 2, atol=1e-6), (half, base)
-    print("  progress weight: default 0.075, scales the progress reward")
+    print("  progress weight: default 0.05, scales the progress reward")
 
 
 def test_progress_distance_mode():
@@ -322,7 +322,7 @@ def test_progress_distance_mode():
     env.target[:] = torch.tensor([0.0, 1.0])
     env.step(torch.tensor([[10.0, 0.0, 0.0]]))
     step = DQNConfig().max_xy_vel * E.DT
-    expected = (1.0 - math.hypot(1.0, step)) * 0.075 / E.DT
+    expected = (1.0 - math.hypot(1.0, step)) * 0.05 / E.DT
     assert torch.allclose(env.last_reward_breakdown["rew_progress"], torch.tensor([expected]), atol=1e-5)
     try:
         E.DroneNav2DEnv(1, DQNConfig(progress_mode="heading"), "cpu")
