@@ -746,6 +746,13 @@ The stop line moved through point releases on `baseline_stop_v6` before v7.
 | baseline_stop_v6.3 | `a148a7e` | inverse-square proximity penalty 0.01 on the sensor clearance in place of the linear 0.2 | STOP6WDPROXINV2X, with STOP6WDPROXINV2XFULL as its control trained from 0 obstacles |
 | `baseline_stop_v7` | `13fadbd` | batch 128 instead of 64, exploration floor 0.01 instead of 0.03, gamma 0.99 as the default | STOP63EPS01B128 |
 | baseline_stop_v7.1 | `17c316b` | AdamW weight decay 1e-3 instead of 1e-4 | STOP63WD1E3FULL |
+| baseline_stop_v7.2 | `9d09f0e` | a LayerNorm before each ReLU of the Q network, with the decay kept at 1e-3 | V71LNFULL |
+| baseline_stop_v7.3 | `e6b99b5` | progress paid from the drop in target distance instead of the commanded speed times the heading cosine | V72_DISTPROG_FULL |
+| baseline_stop_v7.4 | `6eb8735` | progress weight 0.075 instead of 0.15 and inverse-square proximity penalty 0.02 instead of 0.01 | V72_PROG075_PROX02_FULL, confirmed by V74_FULL |
+| baseline_stop_v7.5 | `790c0f3` | the learning rate held at 1e-3 for two thirds of each stage and then cosine-annealed to 1e-4 | V72_LRDECAY_FULL, confirmed by V74_LRDECAY_FULL |
+| baseline_stop_v7.6 | `b19e776` | 3-step returns instead of one-step targets | V72_NSTEP3_FULL, confirmed by V74_LRDECAY_NSTEP3_FULL |
+
+From v7.3 on, each version is kept only if its run from 0 obstacles is no worse than the version before it, judged on the final first and then on best, crashes and the hard-group final. Each version adds one change, v7.4's being the two reward weights tuned together, so a loss can be traced to it. The versions up to v7.2 carried trade-offs the user accepted.
 
 Gamma 0.99 changes no result. Every stop-line arm since baseline_stop_v5 already passed it as a flag, and v7 only makes the code default match.
 
@@ -784,6 +791,97 @@ Gamma 0.99 changes no result. Every stop-line arm since baseline_stop_v5 already
 - From 3e-3 up, one run in each arm collapsed to 86.65 and 86.25 final, so the decay stops at 1e-3.
 - v7.1 is a point release, because it changes one default value and no code path.
 - STOP7WD3E4FULL trains 3e-4 on v7 as the control of the LayerNorm arm.
+
+Every table from here on is 8 obstacles, seed 777, 10,000 layouts, 3 runs trained from 0 obstacles unless a row says otherwise, and a final is the mean of the last 3 checkpoints. Hard-group episodes are summed over the runs.
+
+**The LayerNorm (v7.2).** A LayerNorm before each ReLU follows Gallici et al., *Simplifying Deep Temporal Difference Learning* (ICLR 2025).
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|---|
+| STOP71FULL | baseline_stop_v7.1 | 99.68 / 99.31 | 0.17 | 97.22 (2903) / 96.43 | 89.88 |
+| V71LNFULL | v7.1 with LayerNorm, which became v7.2 | 99.81 / 99.46 | 0.10 | 98.56 (3130) / 96.36 | 93.09 |
+| STOP7WD3E4FULL | v7 with decay 3e-4 | 99.66 / 99.35 | 0.13 | 97.71 (3006) / 96.62 | 94.04 |
+| STOP7LNWD3E4FULL | the same with LayerNorm | 99.77 / 99.56 | 0.12 | 98.08 (3030) / 97.17 | 91.05 |
+| V7LNWD3E3FULL | LayerNorm with decay 3e-3 | 99.61 / 98.98 | 0.25 | 96.81 (3130) / 94.86 | 86.53 |
+| V71_LN_H256_FULL | v7.2 with 256 units per layer | 99.66 / 99.56 | 0.17 | not replayed | not replayed |
+| V7_LN_WD3E4_H256_FULL | STOP7LNWD3E4FULL with 256 units per layer | 99.73 / 99.51 | 0.14 | not replayed | not replayed |
+
+- At decay 3e-4 LayerNorm raised the final in every run, by 0.21, 0.30 and 0.12.
+- LayerNorm with 3e-3 did not collapse as 3e-3 did without it, but it scored lower than 1e-3 on every measure, so v7.2 keeps 1e-3.
+- 256 units per layer was dropped, since the user wanted it only if success rose clearly and it did not.
+- A LayerNorm adds parameters, so no checkpoint trained without it loads into v7.2.
+
+**The progress reward (v7.3).** The user wanted progress paid from positions only, so that the simulator rewards exactly what a dynamics simulator or the real drone will measure. The old form pays the commanded speed times the heading cosine, and a real drone that moves slower than commanded would be overpaid.
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|---|
+| V71LNFULL | v7.2, v * cos | 99.81 / 99.46 | 0.10 | 98.56 (3130) / 96.36 | 93.09 |
+| V72_DISTPROG_FULL | progress from the drop in target distance, which became v7.3 | 99.84 / 99.57 | 0.09 | 98.69 (2913) / 97.28 | 94.95 |
+| V71_POT_FULL | potential-based progress on v7.1, against STOP71FULL | 99.64 / 98.76 | 0.11 | 97.95 (2987) / 95.87 | 93.00 |
+
+- The two forms agree to first order. The drone always moves along its heading, so v * cos(heading error) equals 1.5 times the drop in target distance, with the heading cosine measured after the move.
+- They differ near the target. A straight sideways step costs -0.033 under v * cos and -0.017 under the distance form. A constant-radius orbit costs -0.017 per 0.15 m step under v * cos and nothing under the distance form.
+- That orbit difference was expected to cost success, since the distance form no longer charges circling. No orbit failure appeared in either arm and the success rose slightly, within the noise. The rule set beforehand was that v7.3 goes in when it is not clearly worse, because its purpose is consistency with the real drone rather than a gain.
+- The potential form was rejected for a different reason. With gamma below 1 the shaped progress sums to 1.5 times the start distance whatever the path, so it stops pushing the drone forward, and standing still earns 0.015 times the distance per step. V71_POT_FULL had 7 validation drops of 2 points or more at 8 obstacles against 2 for STOP71FULL, and its final dips were oscillation failures.
+- In this simulator the position is integrated from the commanded speed, so the switch was not expected to change success. It costs 9.2 us per step against 22.1 us over 64 environments, too little to matter.
+
+**The reward weights (v7.4).** The progress weight halved to 0.075 and the inverse-square proximity penalty doubled to 0.02 were tested together on v7.2 with the old v * cos form, then confirmed together with v7.3 from 0 obstacles.
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|---|
+| V72_PROG075_PROX02_FULL | v7.2 with progress 0.075 and proximity 0.02 | 99.89 / 99.71 | 0.03 | 99.27 (2868) / 98.55 | 97.12 |
+| V72_PROX_V2 | v7.2 with the proximity penalty times the speed squared, started from each v7.2 run's 3-obstacle best | 99.73 / 99.21 | 0.13 | not replayed | not replayed |
+| V74_FULL | v7.4, against v7.3 | 99.87 / 99.75 | 0.05 | 98.91 (2853) / 98.36 | 95.58 |
+| V74_PROG05_PROX03_FULL | v7.4 with progress 0.05 and proximity 0.03, 2 runs, against V74_FULL | 99.92 / 99.58 | 0.04 | 99.41 (1747) / 97.67 | 96.59 |
+
+- V72_PROG075_PROX02_FULL raised the final over v7.2 in all 3 runs. Its best checkpoints failed 33 times, 25 of them stalls 1.8 to 6.7 m from the target and 8 crashes in a gap, against 56 failures and 29 crashes for v7.2.
+- V74_FULL beat v7.3 on every measure, with a higher final in all 3 runs, so v7.4 passes the rule.
+- The speed-squared proximity penalty was meant to slow the drone near obstacles, but crashes rose, so it was dropped.
+- Progress 0.05 with proximity 0.03 lowered the final against V74_FULL by 0.10 and 0.34 in its runs, and the hard-group final from 98.36 to 97.67, so the weights stay at v7.4. Four of its 17 failures were a new kind, flights that turned away from the target at the start and never came closer.
+
+**The learning-rate taper (v7.5).** Each stage holds 1e-3 for its first two thirds and then cosine-anneals to 1e-4 by its last episode. The schedule restarts in every stage, because each stage is its own run.
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|---|
+| V71LNFULL | v7.2 | 99.81 / 99.46 | 0.10 | 98.56 (3130) / 96.36 | 93.09 |
+| V72_LRDECAY_FULL | v7.2 with the taper | 99.85 / 99.84 | 0.08 | 98.94 (3207) / 99.09 | 95.86 |
+| V74_LRDECAY_FULL | v7.5, against V74_FULL | 99.93 / 99.92 | 0.02 | 99.40 (3025) / 99.38 | 98.40 |
+
+- On v7.2 the taper raised the final in every run, by 0.24, 0.56 and 0.34, and the gap between best and final shrank from 0.35 to 0.01.
+- The hard-group final rose from 96.36 to 99.09 with as many gaps met, so the gain does not come from avoiding gaps. v7.2 r2 had dropped to 94.83 there.
+- On the validation seed, the mean movement between neighbouring checkpoints in the last third of each stage fell from 0.39 points for v7.2 to 0.26 for the taper's first 2 runs. In the first two thirds, where both arms train at the same rate, it was 0.95 and 0.69.
+- Greedy actions in narrow gaps rest on Q values a few hundredths apart, and at a constant 1e-3 every update moves them enough to flip some of those actions, so neighbouring checkpoints differ mostly on the hard layouts. The taper lets the network settle by the end of the stage. It does not make the network better at those states, which is why the best barely moved.
+- The taper also lowers AdamW's per-step weight shrinkage, since that scales with the learning rate, so the gain cannot be credited to the smaller steps alone.
+- Earlier learning-rate decays failed. E1 decayed from ep500 and did not replicate. V4LRD, linear to 1/10 over the second half of each stage on baseline_v4, scored 98.76 best and 98.62 final, with 1.12% crashes at 8 obstacles. That baseline was still crash-limited, while v7.2 loses mostly to late swings, which is what a taper addresses.
+- V74_LRDECAY_FULL beat v7.4 on every measure, with the final higher by 0.15, 0.14 and 0.23 in its runs, crashes at 0.01 to 0.02% against 0.01 to 0.08%, and the hard-group final at 99.38 against 98.36 with about as many gaps met. So v7.5 passes the rule.
+
+**3-step returns (v7.6).** Each replay transition sums 3 rewards before bootstrapping, so the crash penalty and the reach reward reach the decisions a few steps earlier.
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final | 0.4 to 0.6 m gaps, best |
+|---|---|---|---|---|---|
+| V71LNFULL | v7.2 | 99.81 / 99.46 | 0.10 | 98.56 (3130) / 96.36 | 93.09 |
+| V72_NSTEP3_FULL | v7.2 with 3-step returns | 99.88 / 99.78 | 0.04 | 99.00 (2497) / 98.64 | 95.27 |
+| V72_NSTEP5_FULL | v7.2 with 5-step returns | 99.91 / 99.78 | 0.05 | 99.14 (2395) / 98.36 | 95.40 |
+| V74_NSTEP3_FULL | v7.4 with 3-step returns, run 1 | 99.90 / 99.76 | 0.00 | 99.38 (808) / 98.47 | 97.10 |
+| V74_LRDECAY_NSTEP3_FULL | v7.6, against V74_LRDECAY_FULL | 99.93 / 99.94 | 0.03 | 99.46 (2412) / 99.53 | 97.32 |
+
+- On v7.2, 3-step returns raised the final in every run and lowered crashes from 0.08 to 0.12% to 0.03 to 0.06%. 5 steps scored about the same as 3, and v7.6 uses 3 because a longer window also blames earlier actions for later exploratory mistakes, since the returns are not corrected for exploration.
+- **Every n-step arm meets fewer gaps.** Per run the n-step arms flew into about 770 to 870 gaps narrower than 1.0 m against about 950 to 1070 for the arms without it, so part of their overall success may come from going around gaps rather than through them. The user judges this a good behaviour, since a detour that reaches the target is still a success, but every comparison with an n-step arm has to read its hard-group rate together with its episode count.
+- Within the gaps it does meet, v7.6 has the highest hard-group final of any arm so far, 99.53 against 99.38 for v7.5.
+- On top of the taper, 3-step returns add little. Over runs 1 to 3, v7.6 against v7.5 differs by +0.02, -0.02 and 0.00 in best and 0.00, +0.02 and +0.03 in final, at most 3 episodes in 10,000, so both average 99.93 best and v7.6 averages 99.94 final against 99.92. Both changes remove late-checkpoint failures, so most of their effect overlaps, and v7.5 leaves too few failures for 3 runs to separate the two.
+- The user decided to keep 3-step returns in the baseline anyway. Added alone to v7.2 they raised the final by 0.32 on average and in every run. In the Rainbow ablation (Hessel et al., *Rainbow*, AAAI 2018), removing multi-step learning was one of the two removals that hurt most, together with removing prioritized replay. A tie against v7.5 also satisfies the rule that a version is no worse than the one before.
+
+**Other experiments on v7 to v7.2 that did not go in.**
+
+| Arm | Change | Best / final | Crashes | Hard group best (episodes) / final |
+|---|---|---|---|---|
+| V71_SIM3W_FULL | the three-window similarity penalty on v7.1, against STOP71FULL | 99.68 / 99.35 | 0.14 | 97.31 (2886) / 96.57 |
+| V72_BIN10_FULL | 10 sensor bins per camera instead of 5 | 99.67 / 99.54 | 0.10 | 97.97 (2586) / 97.49 |
+| V72_CAM3_FULL | a third camera, three touching fields of view | 99.78 / 99.36 | 0.14 | 98.20 (2691) / 97.30 |
+| STOP7ATTNFULL | attention over the episode's past steps on v7, against STOP63EPS01B128FULL | 99.81 / 99.62 | 0.08 | 99.00 (2627) / 97.65 |
+
+- 10 bins and a third camera met fewer gaps and gained about 1 point of hard-group final, mostly from v7.2 r2's dip to 94.83, so neither went in. A third camera is a hardware decision left to the user.
+- Attention beat its control on every baseline it ran on, with a shrinking margin, but its 3-obstacle stage took about 6 hours on Kaggle against about 2.5 without it. It is rerun only at a major baseline version, for 2 runs.
 
 ## Evidence on the two core problems
 
@@ -866,6 +964,7 @@ My current understanding has three parts.
 8. **Late-stage instability is back at 8 obstacles.** Single checkpoints late in a stage can drop 20 to 40 points, which is why the final is the mean of the last 3 checkpoints. The swings are training instability, and narrow-gap success does not trend upward during a stage.
 9. **The sensor is part of the narrow-gap problem.** Four sector readings carry no bearing, so the drone cannot tell a passable gap from a closed one until it is at the mouth. Two cameras of 5 bins each did better on narrow gaps, which is why they are in baseline_v6, but their overall final is not yet shown to be as good.
 10. **The stop baseline is the baseline.** baseline_stop_v7, with batch 128 and an exploration floor of 0.01, reaches 99.80% best and 99.36% final at 8 obstacles and stalls less often than the baselines without stop, so it replaced them (see "Why the stop action came back"). Its remaining failures are mostly stalls about 3.5 m from the target and fast crashes in gaps (see "Why baseline_stop_v7 looks the way it does").
+11. **From v7.2 to v7.6** the stop baseline gained a LayerNorm, progress paid from the drop in target distance, a lighter progress weight with a stronger proximity penalty, a learning-rate taper in each stage and 3-step returns. The taper closed most of the gap between best and final that point 8 describes. v7.6 reaches 99.93% best and 99.94% final over 3 runs, with a hard-group final of 99.53%. **It meets about a fifth fewer gaps than the baselines without n-step returns, so part of that gain may come from flying around gaps**, which the user counts as good behaviour. v7.4, v7.5 and v7.6 all passed the rule that a version from v7.3 on is no worse than the one before. v7.6 ties v7.5, with the same mean best, a final 0.02 higher and a hard-group final 0.15 higher.
 
 ## Limitations
 
@@ -881,12 +980,13 @@ My current understanding has three parts.
 
 ## Next steps
 
-1. Measure LayerNorm in the Q network, the second method under step 4. STOP7LNWD3E4FULL trains it from 0 obstacles on v7 with decay 3e-4, which measures the same as 1e-4 and 1e-3, and STOP7WD3E4FULL is its control. If LayerNorm helps, rerun it at 3e-3. Without LayerNorm, 3e-3 made one run in three collapse, and LayerNorm cancels the overall scale of the weights before each ReLU, so a strong decay should stop changing what the network outputs. The user chose this next step.
-2. Check whether the stopped timeouts with the target behind the drone in STOP6 come from the narrower field of view, by replaying baseline_stop_v5 at the same stage.
-3. Separate the stop action from the long-episode package on narrow gaps, by running the hard group on V4LONGG99, which has the long-episode package without the stop.
-4. Try methods that bring final closer to best. The 8-obstacle stage now shows late dips of 20 to 40 points, so the gap between best and final is large enough to measure. They are listed in order of cost.
+1. Edit the weights of trained v7.6 checkpoints by hand on branch `v7.6.2`, as was done for STOP6. The LayerNorm couples every unit of a layer through its mean and variance, so the circuits go into new units appended to each layer rather than into units the network leaves silent. Reusing silent units changed the greedy action on 19% to 38% of states before any circuit fired, while appended units changed it on at most 1 state in 42,337.
+2. If stalls stay the main failure of v7.6, give training more of the stalled states, by starting some episodes from them or by keeping stationary transitions out of the late-step thinning of the replay. Prioritized replay is not the tool for this, since it only reweights transitions already stored and the thinning drops most of the stalled ones.
+3. Run attention on the next major baseline version, 2 runs, as decided for that line.
+4. Check whether the stopped timeouts with the target behind the drone in STOP6 come from the narrower field of view, by replaying baseline_stop_v5 at the same stage.
+5. Separate the stop action from the long-episode package on narrow gaps, by running the hard group on V4LONGG99, which has the long-episode package without the stop.
+6. Try the remaining methods that bring final closer to best, if a later setup brings the late dips back. The LayerNorm became v7.2 and the learning-rate taper of v7.5 closed most of the gap, so these are what is left, in order of cost.
    - Evaluate with the soft target network (Nikishin et al., 2018, and Anschel et al., *Averaged-DQN*, ICML 2017). The soft target is already a moving average of the online network's weights, so evaluating it can reduce the jumps between checkpoints. Training needs no change, only saving the target network as well.
-   - Add a LayerNorm after fc1 and fc2 of the Q network (Gallici et al., *Simplifying Deep Temporal Difference Learning*, ICLR 2025). The paper proves that LayerNorm with an L2 penalty makes TD learning converge, and the parallel sampling it relies on is close to the 64 environments run at once here.
    - Replace Q-value regression with classification over a histogram, the HL-Gauss loss (Farebrother et al., *Stop Regressing*, ICML 2024), to soften noisy targets and a shifting distribution. It adds two hyperparameters, the number of bins and sigma, so it comes last.
-5. Before moving to Isaac Lab, run baseline_stop_v7 in `camera` mode to confirm that emulated camera readings give the same results.
-6. Memory of past steps for maze-like layouts, first stacked recent inputs, then a GRU, and an attention encoder last. The state already carries the pose offset from 20 steps back as a summary. A 1-layer attention encoder over the last 20 actions would add 11% to 91% parameters for an embedding of 8 to 32, but 2 to 14 times the compute per forward pass, which matters on the CPU.
+7. Before moving to Isaac Lab, run baseline_stop_v7 in `camera` mode to confirm that emulated camera readings give the same results.
+8. Memory of past steps for maze-like layouts, first stacked recent inputs, then a GRU, and an attention encoder last. The state already carries the pose offset from 20 steps back as a summary. A 1-layer attention encoder over the last 20 actions would add 11% to 91% parameters for an embedding of 8 to 32, but 2 to 14 times the compute per forward pass, which matters on the CPU.
