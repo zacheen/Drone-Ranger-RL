@@ -29,7 +29,7 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from dqn_config import DQNConfig, add_config_args, config_from_args
-from dqn_action_space import discrete_action_to_continuous, QNetwork
+from dqn_action_space import NUM_TURNS, discrete_action_to_continuous, QNetwork
 from dqn_2d_env import OUTCOMES, add_env_args, env_from_args
 from exploration import HeldRandomExploration
 from nstep import NStepAccumulator
@@ -256,6 +256,8 @@ for episode in range(args.num_episodes):
         if nstep is None:
             keep = ((step_in_episode <= cfg.replay_full_steps) | terminal
                     | (torch.rand(args.num_envs, device=device) < cfg.replay_late_fraction))
+            if cfg.replay_keep_stopped:
+                keep |= action_idx < NUM_TURNS
             replay_buffer.push(state[keep], action_idx[keep], reward[keep], next_state[keep], terminal[keep])
         else:
             # Windows are built from every raw step, and only the emitted n-step transitions are
@@ -264,6 +266,8 @@ for episode in range(args.num_episodes):
                 state, action_idx, reward, next_state, terminal, done, step_in_episode)
             late = torch.rand(args.num_envs, device=device)[env_i] < cfg.replay_late_fraction
             keep = (start_n <= cfg.replay_full_steps) | term_n | late
+            if cfg.replay_keep_stopped:
+                keep |= a_n < NUM_TURNS
             replay_buffer.push(s_n[keep], a_n[keep], r_n[keep], s_next_n[keep], term_n[keep], disc_n[keep])
 
         if done.any():
