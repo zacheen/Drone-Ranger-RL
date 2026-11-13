@@ -63,12 +63,13 @@ class DQNConfig:
     explore_hold_mu: float = 2.0
     explore_max_hold: int = 100
     # Transitions past step replay_full_steps of their episode are stored with probability replay_late_fraction,
-    # except the reaching and crashing steps, so long stuck stretches do not crowd the buffer.
+    # except the reaching and crashing steps (and stops, see replay_keep_stopped), so long stuck stretches do not
+    # crowd the buffer.
     replay_full_steps: int = 200
     replay_late_fraction: float = 0.1
     # 1 also keeps every late transition whose first action is a stop, turning or not, so the stalls that thinning
     # would mostly drop stay in the buffer. An int, since add_config_args parses a bool field's "false" as True.
-    replay_keep_stopped: int = 0
+    replay_keep_stopped: int = 1
     # Proportional prioritized replay (Schaul et al. 2016). per_alpha 0 keeps uniform sampling.
     per_alpha: float = 0.0
     per_beta_start: float = 0.4  # importance-sampling exponent, raised linearly to 1 by the run's last episode
